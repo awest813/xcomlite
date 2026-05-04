@@ -3,4 +3,49 @@ body {
   margin: 0;
   height: 100%;
   overflow: hidden;
+  background: #0a0d0f;
+  color: #eef3f0;
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+button {
+  font: inherit;
+}
+
+.hud {
+  position: fixed;
+  top: 16px;
+  left: 16px;
+  display: grid;
+  gap: 8px;
+  min-width: 230px;
+  padding: 12px;
+  background: rgba(10, 13, 15, 0.82);
+  border: 1px solid rgba(238, 243, 240, 0.16);
+  border-radius: 6px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.28);
+  pointer-events: auto;
+}
+
+.hud__team {
+  font-weight: 700;
+}
+
+.hud__selected {
+  min-height: 20px;
+  color: #c8d4ce;
+}
+
+.hud button {
+  width: fit-content;
+  padding: 7px 10px;
+  color: #eef3f0;
+  background: #2e6946;
+  border: 1px solid #4e9b6d;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.hud button:hover {
+  background: #377a53;
 }
