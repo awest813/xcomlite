@@ -28,5 +28,6 @@ function createUnit(id: string, name: string, team: Unit["team"], x: number, y: 
     movementPoints: 6,
     maxMovementPoints: 6,
     position: { x, y },
+    alive: true,
   };
 }

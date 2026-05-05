@@ -26,10 +26,17 @@ type MeshMetadata =
 
 const TILE_SIZE = 1;
 const UNIT_MOVE_SPEED_TILES_PER_SECOND = 5;
+const HIT_FLASH_DURATION_MS = 320;
+const MISS_FLASH_DURATION_MS = 200;
 
 interface UnitAnimation {
   waypoints: Vector3[];
   waypointIndex: number;
+}
+
+interface UnitFlash {
+  timer: number;
+  hit: boolean;
 }
 
 export class TacticalScene {
@@ -44,8 +51,12 @@ export class TacticalScene {
   private readonly fullCoverMaterial: StandardMaterial;
   private readonly playerMaterial: StandardMaterial;
   private readonly enemyMaterial: StandardMaterial;
+  private readonly attackableMaterial: StandardMaterial;
+  private readonly hitFlashMaterial: StandardMaterial;
+  private readonly missFlashMaterial: StandardMaterial;
   private hoveredPath: GridPosition[] = [];
   private readonly unitAnimations = new Map<string, UnitAnimation>();
+  private readonly unitFlashes = new Map<string, UnitFlash>();
 
   constructor(
     private readonly scene: Scene,
@@ -63,6 +74,12 @@ export class TacticalScene {
     this.fullCoverMaterial = this.createMaterial("full-cover-material", new Color3(0.38, 0.38, 0.36));
     this.playerMaterial = this.createMaterial("player-material", new Color3(0.18, 0.42, 0.85));
     this.enemyMaterial = this.createMaterial("enemy-material", new Color3(0.78, 0.18, 0.16));
+    this.attackableMaterial = this.createMaterial("attackable-material", new Color3(0.95, 0.42, 0.08));
+    this.attackableMaterial.emissiveColor = new Color3(0.22, 0.06, 0.0);
+    this.hitFlashMaterial = this.createMaterial("hit-flash-material", new Color3(1.0, 0.85, 0.1));
+    this.hitFlashMaterial.emissiveColor = new Color3(0.3, 0.22, 0.0);
+    this.missFlashMaterial = this.createMaterial("miss-flash-material", new Color3(0.7, 0.7, 0.72));
+    this.missFlashMaterial.emissiveColor = new Color3(0.08, 0.08, 0.08);
 
     this.setupCamera(canvas);
     this.setupLighting();
@@ -152,23 +169,51 @@ export class TacticalScene {
   }
 
   private handlePickedMesh(mesh: AbstractMesh | null | undefined): void {
-      const metadata = mesh?.metadata as MeshMetadata | undefined;
-      if (metadata?.kind === "unit") {
-        this.battleState.selectUnit(metadata.unitId);
+    const metadata = mesh?.metadata as MeshMetadata | undefined;
+
+    if (metadata?.kind === "unit") {
+      const unit = this.battleState.units.find((u) => u.id === metadata.unitId);
+      if (unit === undefined || !unit.alive) return;
+
+      // Click enemy unit while player is selected → try to shoot
+      if (unit.team === "enemy" && this.battleState.selectedUnit?.team === "player") {
+        this.battleState.shootAtUnit(unit.id);
         return;
       }
 
-      if (metadata?.kind === "tile") {
-        this.battleState.moveSelectedUnit(metadata.position);
-        this.hoveredPath = [];
-        window.tactical_hover_path = [];
-        this.syncTileHighlights();
-      }
+      this.battleState.selectUnit(metadata.unitId);
+      return;
+    }
+
+    if (metadata?.kind === "tile") {
+      this.battleState.moveSelectedUnit(metadata.position);
+      this.hoveredPath = [];
+      window.tactical_hover_path = [];
+      this.syncTileHighlights();
+    }
   }
 
   update(deltaMs: number): void {
+    this.processAttackEvents();
     this.startQueuedMovementAnimations();
     this.updateMovementAnimations(deltaMs);
+    this.updateUnitFlashes(deltaMs);
+  }
+
+  private processAttackEvents(): void {
+    this.battleState.drainAttackEvents().forEach((event) => {
+      this.unitFlashes.set(event.targetId, {
+        timer: event.hit ? HIT_FLASH_DURATION_MS : MISS_FLASH_DURATION_MS,
+        hit: event.hit,
+      });
+
+      if (event.targetDied) {
+        const mesh = this.unitMeshes.get(event.targetId);
+        if (mesh !== undefined) {
+          // Collapse the mesh flat to show death — done after flash timer via syncUnitVisibility
+        }
+      }
+    });
   }
 
   private updateHoveredPath(mesh: AbstractMesh | null | undefined): void {
@@ -187,6 +232,7 @@ export class TacticalScene {
   private syncScene(): void {
     this.startQueuedMovementAnimations();
     this.syncUnitPositions();
+    this.syncUnitVisibility();
     this.syncTileHighlights();
   }
 
@@ -195,6 +241,46 @@ export class TacticalScene {
       const mesh = this.unitMeshes.get(unit.id);
       if (mesh !== undefined && !this.unitAnimations.has(unit.id)) {
         mesh.position = this.toWorldPosition(unit.position, 0.42);
+      }
+    });
+  }
+
+  private syncUnitVisibility(): void {
+    this.battleState.units.forEach((unit) => {
+      const mesh = this.unitMeshes.get(unit.id);
+      if (mesh === undefined) return;
+
+      if (!unit.alive && !this.unitFlashes.has(unit.id)) {
+        // Flatten dead units to the ground
+        mesh.scaling.y = 0.08;
+        mesh.position.y = 0.03;
+        mesh.isPickable = false;
+      }
+    });
+  }
+
+  private updateUnitFlashes(deltaMs: number): void {
+    this.unitFlashes.forEach((flash, unitId) => {
+      flash.timer -= deltaMs;
+      const mesh = this.unitMeshes.get(unitId);
+
+      if (flash.timer <= 0) {
+        this.unitFlashes.delete(unitId);
+        if (mesh !== undefined) {
+          const unit = this.battleState.units.find((u) => u.id === unitId);
+          if (unit !== undefined && !unit.alive) {
+            mesh.scaling.y = 0.08;
+            mesh.position.y = 0.03;
+            mesh.isPickable = false;
+          } else if (unit !== undefined) {
+            mesh.material = unit.team === "player" ? this.playerMaterial : this.enemyMaterial;
+          }
+        }
+        return;
+      }
+
+      if (mesh !== undefined) {
+        mesh.material = flash.hit ? this.hitFlashMaterial : this.missFlashMaterial;
       }
     });
   }
@@ -261,6 +347,11 @@ export class TacticalScene {
     );
     const pathTiles = new Set(this.hoveredPath.map((position) => this.tileKey(position)));
 
+    // Attackable enemy unit ids for current selection
+    const attackableIds = new Set(
+      selectedUnit === undefined ? [] : this.battleState.getAttackableUnits(selectedUnit).map((u) => u.id)
+    );
+
     this.battleState.grid.forEach((tile) => {
       const mesh = this.tileMeshes.get(this.tileKey(tile));
       if (mesh === undefined) {
@@ -275,6 +366,20 @@ export class TacticalScene {
         mesh.material = this.reachableMaterial;
       } else {
         mesh.material = tile.walkable ? this.tileMaterial : this.blockedTileMaterial;
+      }
+    });
+
+    // Highlight unit meshes: attackable enemies get orange glow
+    this.battleState.units.forEach((unit) => {
+      if (!unit.alive) return;
+      const mesh = this.unitMeshes.get(unit.id);
+      if (mesh === undefined) return;
+      if (this.unitFlashes.has(unit.id)) return;
+
+      if (attackableIds.has(unit.id)) {
+        mesh.material = this.attackableMaterial;
+      } else {
+        mesh.material = unit.team === "player" ? this.playerMaterial : this.enemyMaterial;
       }
     });
   }

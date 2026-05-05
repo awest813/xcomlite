@@ -36,6 +36,12 @@ button {
   color: #c8d4ce;
 }
 
+.hud__hint {
+  min-height: 18px;
+  font-size: 0.85em;
+  color: #f0a050;
+}
+
 .hud button {
   width: fit-content;
   padding: 7px 10px;
@@ -48,4 +54,32 @@ button {
 
 .hud button:hover {
   background: #377a53;
+}
+
+.hud button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.result-overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 5rem;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  pointer-events: none;
+  text-shadow: 0 4px 32px rgba(0, 0, 0, 0.9);
+}
+
+.result-overlay--victory {
+  color: #6edb82;
+  background: rgba(0, 0, 0, 0.52);
+}
+
+.result-overlay--defeat {
+  color: #e05050;
+  background: rgba(0, 0, 0, 0.62);
 }

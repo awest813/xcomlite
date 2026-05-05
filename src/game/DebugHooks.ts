@@ -33,9 +33,11 @@ export function installDebugHooks(battleState: BattleState, scene: Scene, update
               maxMovementPoints: selectedUnit.maxMovementPoints,
               position: selectedUnit.position,
             },
+      battleResult: battleState.getBattleResult(),
       units: battleState.units.map((unit) => ({
         id: unit.id,
         team: unit.team,
+        alive: unit.alive,
         hp: unit.hp,
         actionPoints: unit.actionPoints,
         movementPoints: unit.movementPoints,

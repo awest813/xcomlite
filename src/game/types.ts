@@ -26,4 +26,7 @@ export interface Unit {
   movementPoints: number;
   maxMovementPoints: number;
   position: GridPosition;
+  alive: boolean;
 }
+
+export type BattleResult = "ongoing" | "victory" | "defeat";
