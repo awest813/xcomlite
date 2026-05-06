@@ -1,5 +1,5 @@
 import { battleMapTiles } from "../data/BattleMap";
-import type { GridPosition, Tile } from "./types";
+import type { CoverSides, GridPosition, Tile } from "./types";
 
 export const GRID_WIDTH = 10;
 export const GRID_HEIGHT = 10;
@@ -12,8 +12,10 @@ export function buildGrid(width = GRID_WIDTH, height = GRID_HEIGHT): Tile[] {
       tiles.push({
         x,
         y,
+        terrain: "floor",
         walkable: true,
         cover: 0,
+        coverSides: createEmptyCoverSides(),
         moveCost: 1,
         blocksSight: false,
         occupiedBy: null,
@@ -24,14 +26,25 @@ export function buildGrid(width = GRID_WIDTH, height = GRID_HEIGHT): Tile[] {
   battleMapTiles.forEach((authoredTile) => {
     const tile = getTile(tiles, authoredTile);
     if (tile !== undefined) {
+      tile.terrain = authoredTile.terrain ?? tile.terrain;
       tile.walkable = authoredTile.walkable ?? tile.walkable;
       tile.cover = authoredTile.cover ?? tile.cover;
+      tile.coverSides = { ...tile.coverSides, ...authoredTile.coverSides };
       tile.moveCost = authoredTile.moveCost ?? tile.moveCost;
       tile.blocksSight = authoredTile.blocksSight ?? tile.blocksSight;
     }
   });
 
   return tiles;
+}
+
+function createEmptyCoverSides(): CoverSides {
+  return {
+    north: 0,
+    east: 0,
+    south: 0,
+    west: 0,
+  };
 }
 
 export function getTile(grid: Tile[], position: GridPosition): Tile | undefined {

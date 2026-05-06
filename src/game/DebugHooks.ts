@@ -13,12 +13,30 @@ export function installDebugHooks(battleState: BattleState, scene: Scene, update
   window.render_game_to_text = () => {
     const selectedUnit = battleState.selectedUnit;
     const reachableTiles = selectedUnit === undefined ? [] : battleState.getReachableTiles(selectedUnit);
+    const sightlines = battleState.getSightlinesForSelectedUnit();
 
     return JSON.stringify({
       coordinateSystem: "grid origin is top-left; x increases right; y increases down",
       currentTeam: battleState.currentTeam,
       phase: battleState.phase,
       selectedUnitId: battleState.selectedUnitId,
+      selectedTargetUnitId: battleState.selectedTargetUnitId,
+      hoveredTile:
+        battleState.hoveredTile === undefined
+          ? null
+          : {
+              x: battleState.hoveredTile.x,
+              y: battleState.hoveredTile.y,
+              terrain: battleState.hoveredTile.terrain,
+              cover: battleState.hoveredTile.cover,
+              moveCost: battleState.hoveredTile.moveCost,
+              pathCost: battleState.getPathCostForSelectedUnit(battleState.hoveredTile),
+            },
+      previewOrigin: battleState.getPreviewOriginForSelectedUnit() ?? null,
+      sightlines,
+      targetPreviews: battleState.getTargetPreviewsForSelectedUnit(),
+      aimPreview: battleState.aimPreview,
+      lastShotResult: battleState.lastShotResult,
       selectedUnit:
         selectedUnit === undefined
           ? null
@@ -35,19 +53,25 @@ export function installDebugHooks(battleState: BattleState, scene: Scene, update
             },
       units: battleState.units.map((unit) => ({
         id: unit.id,
+        name: unit.name,
         team: unit.team,
         hp: unit.hp,
+        maxHp: unit.maxHp,
         actionPoints: unit.actionPoints,
+        maxActionPoints: unit.maxActionPoints,
         movementPoints: unit.movementPoints,
+        maxMovementPoints: unit.maxMovementPoints,
         position: unit.position,
       })),
       terrain: battleState.grid
-        .filter((tile) => !tile.walkable || tile.cover > 0)
+        .filter((tile) => tile.terrain !== "floor" || !tile.walkable || tile.cover > 0 || tile.moveCost > 1)
         .map((tile) => ({
           x: tile.x,
           y: tile.y,
+          terrain: tile.terrain,
           walkable: tile.walkable,
           cover: tile.cover,
+          coverSides: tile.coverSides,
           moveCost: tile.moveCost,
           blocksSight: tile.blocksSight,
         })),

@@ -17,23 +17,89 @@ button {
   top: 16px;
   left: 16px;
   display: grid;
-  gap: 8px;
-  min-width: 230px;
+  gap: 10px;
+  width: 280px;
   padding: 12px;
-  background: rgba(10, 13, 15, 0.82);
-  border: 1px solid rgba(238, 243, 240, 0.16);
+  background: rgba(7, 10, 11, 0.86);
+  border: 1px solid rgba(117, 179, 209, 0.28);
   border-radius: 6px;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.28);
   pointer-events: auto;
 }
 
 .hud__team {
+  color: #9fd7ff;
   font-weight: 700;
+  letter-spacing: 0;
 }
 
 .hud__selected {
   min-height: 20px;
   color: #c8d4ce;
+  line-height: 1.35;
+}
+
+.hud__roster {
+  display: grid;
+  gap: 6px;
+}
+
+.hud__unit {
+  display: grid;
+  gap: 2px;
+  width: 100%;
+  padding: 8px;
+  color: #eef3f0;
+  text-align: left;
+  background: rgba(40, 52, 54, 0.78);
+  border: 1px solid rgba(238, 243, 240, 0.12);
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.hud__unit:hover:not(:disabled),
+.hud__unit.is-selected {
+  border-color: rgba(124, 208, 255, 0.72);
+  background: rgba(34, 73, 96, 0.88);
+}
+
+.hud__unit:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.hud__unit-name {
+  font-weight: 700;
+}
+
+.hud__tile,
+.hud__sight,
+.hud__aim,
+.hud__shot {
+  padding: 8px;
+  color: #d7e2dc;
+  background: rgba(9, 13, 14, 0.58);
+  border: 1px solid rgba(238, 243, 240, 0.1);
+  border-radius: 5px;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.hud__aim {
+  color: #ffe58b;
+  border-color: rgba(255, 207, 79, 0.28);
+}
+
+.hud__shot {
+  color: #ffc4b5;
+  border-color: rgba(255, 127, 88, 0.26);
+}
+
+.hud__unit-stats,
+.hud__orders {
+  color: #aab8b2;
+  font-size: 12px;
+  line-height: 1.35;
 }
 
 .hud button {
@@ -48,4 +114,18 @@ button {
 
 .hud button:hover {
   background: #377a53;
+}
+
+.hud button:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.hud button.hud__fire {
+  background: #8a342a;
+  border-color: #c45d4c;
+}
+
+.hud button.hud__fire:hover:not(:disabled) {
+  background: #a33f32;
 }

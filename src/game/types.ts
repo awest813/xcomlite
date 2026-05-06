@@ -1,6 +1,12 @@
 export type Team = "player" | "enemy";
 
-export type BattlePhase = "selecting" | "moving";
+export type BattlePhase = "selecting" | "moving" | "aiming";
+
+export type TerrainType = "floor" | "road" | "rough" | "obstacle";
+
+export type CoverDirection = "north" | "east" | "south" | "west";
+
+export type CoverSides = Record<CoverDirection, number>;
 
 export interface GridPosition {
   x: number;
@@ -8,8 +14,10 @@ export interface GridPosition {
 }
 
 export interface Tile extends GridPosition {
+  terrain: TerrainType;
   walkable: boolean;
   cover: number;
+  coverSides: CoverSides;
   moveCost: number;
   blocksSight: boolean;
   occupiedBy: string | null;
