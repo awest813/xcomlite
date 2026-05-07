@@ -16,11 +16,6 @@ import { GRID_HEIGHT, GRID_WIDTH, getTile } from "../game/Grid";
 import type { BattleState } from "../game/BattleState";
 import type { GridPosition, Tile } from "../game/types";
 
-declare global {
-  interface Window {
-    tactical_hover_path?: GridPosition[];
-  }
-}
 
 type MeshMetadata =
   | { kind: "tile"; position: GridPosition }
@@ -73,6 +68,8 @@ export class TacticalScene {
   private readonly impactMissMaterial: StandardMaterial;
   private readonly overwatchMarkerMaterial: StandardMaterial;
   private readonly extractZoneMaterial: StandardMaterial;
+  private readonly fogHiddenMaterial: StandardMaterial;
+  private readonly fogExploredMaterial: StandardMaterial;
   private hoveredPath: GridPosition[] = [];
   private readonly unitAnimations = new Map<string, UnitAnimation>();
 
@@ -115,6 +112,8 @@ export class TacticalScene {
     this.overwatchMarkerMaterial.emissiveColor = new Color3(0.08, 0.3, 0.08);
     this.extractZoneMaterial = this.createMaterial("extract-zone-material", new Color3(0.2, 0.6, 0.9));
     this.extractZoneMaterial.emissiveColor = new Color3(0.1, 0.25, 0.4);
+    this.fogHiddenMaterial = this.createMaterial("fog-hidden-material", new Color3(0.02, 0.02, 0.04));
+    this.fogExploredMaterial = this.createMaterial("fog-explored-material", new Color3(0.08, 0.08, 0.12));
     this.selectionRingMaterial.emissiveColor = new Color3(0.1, 0.28, 0.42);
     this.pathMarkerMaterial.emissiveColor = new Color3(0.18, 0.13, 0.01);
     this.visibleEnemyMarkerMaterial.emissiveColor = new Color3(0.22, 0.1, 0.01);
@@ -183,14 +182,15 @@ export class TacticalScene {
 
   private renderGrid(): void {
     this.battleState.grid.forEach((tile) => {
+      const tileHeight = 0.06 + tile.elevation * 0.5;
       const mesh = MeshBuilder.CreateBox(
         this.tileKey(tile),
-        { width: 0.94, height: 0.06, depth: 0.94 },
+        { width: 0.94, height: tileHeight, depth: 0.94 },
         this.scene
       );
-      mesh.position = this.toWorldPosition(tile, 0);
+      mesh.position = this.toWorldPosition(tile, tileHeight / 2);
       mesh.material = this.getBaseTileMaterial(tile);
-      mesh.metadata = { kind: "tile", position: { x: tile.x, y: tile.y } } satisfies MeshMetadata;
+      mesh.metadata = { kind: "tile", position: { x: tile.x, y: tile.y, elevation: tile.elevation } } satisfies MeshMetadata;
       this.tileMeshes.set(this.tileKey(tile), mesh);
 
       if (tile.terrain === "road") {
@@ -199,7 +199,7 @@ export class TacticalScene {
           { width: 0.08, height: 0.012, depth: 0.62 },
           this.scene
         );
-        stripeMesh.position = this.toWorldPosition(tile, 0.048);
+        stripeMesh.position = this.toWorldPosition(tile, tileHeight + 0.048);
         stripeMesh.material = this.roadStripeMaterial;
         stripeMesh.isPickable = false;
       }
@@ -217,7 +217,7 @@ export class TacticalScene {
           { width: 0.94, height: 0.08, depth: 0.94 },
           this.scene
         );
-        extractMesh.position = this.toWorldPosition(extractTile, 0.06);
+        extractMesh.position = this.toWorldPosition(extractTile, extractTile.elevation * 0.5 + 0.06);
         extractMesh.material = this.extractZoneMaterial;
         extractMesh.isPickable = false;
       }
@@ -226,12 +226,13 @@ export class TacticalScene {
 
   private renderUnits(): void {
     this.battleState.units.forEach((unit) => {
+      const baseY = unit.position.elevation * 0.5;
       const mesh = MeshBuilder.CreateCylinder(
         unit.id,
         { diameterTop: 0.48, diameterBottom: 0.62, height: 0.75, tessellation: 18 },
         this.scene
       );
-      mesh.position = this.toWorldPosition(unit.position, 0.42);
+      mesh.position = this.toWorldPosition(unit.position, baseY + 0.42);
       mesh.material = unit.team === "player" ? this.playerMaterial : this.enemyMaterial;
       mesh.metadata = { kind: "unit", unitId: unit.id } satisfies MeshMetadata;
       this.unitMeshes.set(unit.id, mesh);
@@ -316,6 +317,7 @@ export class TacticalScene {
   }
 
   private renderCover(tile: Tile): void {
+    const baseY = tile.elevation * 0.5;
     const sides = Object.entries(tile.coverSides).filter(([, cover]) => cover > 0);
     if (sides.length === 0) {
       this.renderLegacyCover(tile);
@@ -334,7 +336,7 @@ export class TacticalScene {
         this.scene
       );
 
-      const position = this.toWorldPosition(tile, height / 2 + 0.05);
+      const position = this.toWorldPosition(tile, baseY + height / 2 + 0.05);
       if (direction === "north") {
         position.z -= 0.33;
       } else if (direction === "south") {
@@ -352,29 +354,27 @@ export class TacticalScene {
   }
 
   private renderLegacyCover(tile: Tile): void {
+    const baseY = tile.elevation * 0.5;
     const coverHeight = tile.cover >= 2 ? 0.74 : 0.38;
     const coverMesh = MeshBuilder.CreateBox(
       `cover-${tile.x}-${tile.y}`,
       { width: 0.62, height: coverHeight, depth: 0.22 },
       this.scene
     );
-    coverMesh.position = this.toWorldPosition(tile, coverHeight / 2 + 0.04);
+    coverMesh.position = this.toWorldPosition(tile, baseY + coverHeight / 2 + 0.04);
     coverMesh.material = tile.cover >= 2 ? this.fullCoverMaterial : this.halfCoverMaterial;
     coverMesh.isPickable = false;
   }
 
-  private setupPicking(canvas: HTMLCanvasElement): void {
-    canvas.addEventListener("click", () => {
-      const mesh = this.scene.pick(this.scene.pointerX, this.scene.pointerY)?.pickedMesh;
-      this.handlePickedMesh(mesh);
-    });
-
+  private setupPicking(_canvas: HTMLCanvasElement): void {
     this.scene.onPointerObservable.add((pointerInfo) => {
+      if (pointerInfo.type === PointerEventTypes.POINTERMOVE) {
+        const pickedMesh = this.scene.pick(this.scene.pointerX, this.scene.pointerY)?.pickedMesh;
+        this.updateHoveredPath(pickedMesh);
+        return;
+      }
+
       if (pointerInfo.type !== PointerEventTypes.POINTERPICK) {
-        if (pointerInfo.type === PointerEventTypes.POINTERMOVE) {
-          const pickedMesh = this.scene.pick(this.scene.pointerX, this.scene.pointerY)?.pickedMesh;
-          this.updateHoveredPath(pickedMesh);
-        }
         return;
       }
 
@@ -438,9 +438,17 @@ export class TacticalScene {
       }
 
       if (metadata?.kind === "tile") {
+        const phase = this.battleState.phase;
+        if (phase === "aiming") {
+          this.battleState.setHoveredTile(metadata.position);
+          return;
+        }
+        if (phase === "grenade_aiming") {
+          this.battleState.setHoveredTile(metadata.position);
+          return;
+        }
         this.battleState.moveSelectedUnit(metadata.position);
         this.hoveredPath = [];
-        window.tactical_hover_path = [];
         this.syncTileHighlights();
       }
   }
@@ -462,7 +470,6 @@ export class TacticalScene {
     }
 
     this.hoveredPath = nextPath;
-    window.tactical_hover_path = nextPath;
     this.battleState.setHoveredTile(hoveredTile);
     this.syncTileHighlights();
   }
@@ -500,14 +507,18 @@ export class TacticalScene {
     this.battleState.units.forEach((unit) => {
       const mesh = this.unitMeshes.get(unit.id);
       if (mesh !== undefined && !this.unitAnimations.has(unit.id)) {
-        mesh.position = this.toWorldPosition(unit.position, 0.42);
+        const baseY = unit.position.elevation * 0.5;
+        mesh.position = this.toWorldPosition(unit.position, baseY + 0.42);
       }
     });
   }
 
   private startQueuedMovementAnimations(): void {
     this.battleState.drainMovementEvents().forEach((event) => {
-      const waypoints = event.path.map((position) => this.toWorldPosition(position, 0.42));
+      const waypoints = event.path.map((position) => {
+        const baseY = position.elevation * 0.5;
+        return this.toWorldPosition(position, baseY + 0.42);
+      });
       if (waypoints.length < 2) {
         return;
       }
@@ -553,7 +564,8 @@ export class TacticalScene {
       if (animation.waypointIndex >= animation.waypoints.length) {
         const unit = this.battleState.units.find((candidate) => candidate.id === unitId);
         if (unit !== undefined) {
-          mesh.position = this.toWorldPosition(unit.position, 0.42);
+          const baseY = unit.position.elevation * 0.5;
+          mesh.position = this.toWorldPosition(unit.position, baseY + 0.42);
         }
         this.unitAnimations.delete(unitId);
       }
@@ -573,7 +585,12 @@ export class TacticalScene {
         return;
       }
 
-      if (selectedUnit?.position.x === tile.x && selectedUnit.position.y === tile.y) {
+      if (tile.fogState === "hidden") {
+        mesh.material = this.fogHiddenMaterial;
+        mesh.isVisible = true;
+      } else if (tile.fogState === "explored") {
+        mesh.material = this.fogExploredMaterial;
+      } else if (selectedUnit?.position.x === tile.x && selectedUnit.position.y === tile.y) {
         mesh.material = this.selectedMaterial;
       } else if (pathTiles.has(this.tileKey(tile))) {
         mesh.material = this.pathPreviewMaterial;
@@ -589,6 +606,13 @@ export class TacticalScene {
 
   private syncUnitOverlays(): void {
     this.battleState.units.forEach((unit) => {
+      const mesh = this.unitMeshes.get(unit.id);
+      if (mesh !== undefined) {
+        const tile = this.battleState.grid.find((t) => t.x === unit.position.x && t.y === unit.position.y);
+        const isHidden = unit.team === "enemy" && tile?.fogState !== "visible";
+        mesh.isVisible = !isHidden;
+      }
+
       const selectionRing = this.unitSelectionRings.get(unit.id);
       if (selectionRing !== undefined) {
         selectionRing.isVisible = unit.id === this.battleState.selectedUnitId;
@@ -618,12 +642,16 @@ export class TacticalScene {
     );
 
     this.enemySightMarkers.forEach((marker, unitId) => {
+      const enemyUnit = this.battleState.units.find((u) => u.id === unitId);
+      const enemyTile = enemyUnit ? this.battleState.grid.find((t) => t.x === enemyUnit.position.x && t.y === enemyUnit.position.y) : undefined;
+      const isVisible = enemyTile?.fogState === "visible";
+
       const sightline = sightlineByEnemy.get(unitId);
       const preview = previewByEnemy.get(unitId);
-      marker.isVisible = sightline !== undefined;
-      if (this.battleState.selectedTargetUnitId === unitId) {
+      marker.isVisible = isVisible && sightline !== undefined;
+      if (this.battleState.selectedTargetUnitId === unitId && isVisible) {
         marker.material = this.aimedEnemyMarkerMaterial;
-      } else if (preview?.flanked) {
+      } else if (preview?.flanked && isVisible) {
         marker.material = this.flankedEnemyMarkerMaterial;
       } else {
         marker.material = sightline?.visible ? this.visibleEnemyMarkerMaterial : this.hiddenEnemyMarkerMaterial;
@@ -647,7 +675,8 @@ export class TacticalScene {
       const position = this.hoveredPath[index];
       marker.isVisible = position !== undefined;
       if (position !== undefined) {
-        marker.position = this.toWorldPosition(position, 0.12);
+        const baseY = position.elevation * 0.5;
+        marker.position = this.toWorldPosition(position, baseY + 0.12);
       }
     });
   }
@@ -778,5 +807,28 @@ export class TacticalScene {
 
   private tileKey(tile: GridPosition): string {
     return `tile-${tile.x}-${tile.y}`;
+  }
+
+  dispose(): void {
+    this.tileMeshes.forEach((mesh) => mesh.dispose());
+    this.unitMeshes.forEach((mesh) => {
+      mesh.getChildMeshes().forEach((child) => child.dispose());
+      mesh.dispose();
+    });
+    this.tileMeshes.clear();
+    this.unitMeshes.clear();
+    this.unitHealthBars.clear();
+    this.unitSelectionRings.clear();
+    this.unitOverwatchMarkers.clear();
+    this.enemySightMarkers.clear();
+    this.pathMarkerMeshes.forEach((mesh) => mesh.dispose());
+    this.pathMarkerMeshes.length = 0;
+    this.sightlineMeshes.forEach((mesh) => mesh.dispose());
+    this.sightlineMeshes.length = 0;
+    this.shotLineMeshes.forEach((mesh) => mesh.dispose());
+    this.shotLineMeshes.length = 0;
+    this.impactFlashMeshes.forEach((mesh) => mesh.dispose());
+    this.impactFlashMeshes.length = 0;
+    this.unitAnimations.clear();
   }
 }

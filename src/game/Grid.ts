@@ -1,10 +1,12 @@
-import { battleMapTiles } from "../data/BattleMap";
-import type { CoverSides, GridPosition, Tile } from "./types";
+import type { MapLayout } from "../data/BattleMap";
+import type { CoverSides, FogState, GridPosition, Tile } from "./types";
 
 export const GRID_WIDTH = 10;
 export const GRID_HEIGHT = 10;
+export const MAX_CLIMBABLE_ELEVATION = 1;
 
-export function buildGrid(width = GRID_WIDTH, height = GRID_HEIGHT): Tile[] {
+export function buildGrid(layout: MapLayout): Tile[] {
+  const { width, height, tiles: layoutTiles } = layout;
   const tiles: Tile[] = [];
 
   for (let y = 0; y < height; y += 1) {
@@ -12,6 +14,7 @@ export function buildGrid(width = GRID_WIDTH, height = GRID_HEIGHT): Tile[] {
       tiles.push({
         x,
         y,
+        elevation: 0,
         terrain: "floor",
         walkable: true,
         cover: 0,
@@ -19,12 +22,14 @@ export function buildGrid(width = GRID_WIDTH, height = GRID_HEIGHT): Tile[] {
         moveCost: 1,
         blocksSight: false,
         occupiedBy: null,
+        destructible: false,
+        fogState: "hidden" as FogState,
       });
     }
   }
 
-  battleMapTiles.forEach((authoredTile) => {
-    const tile = getTile(tiles, authoredTile);
+  layoutTiles.forEach((authoredTile) => {
+    const tile = getTile(tiles, { x: authoredTile.x, y: authoredTile.y, elevation: authoredTile.elevation ?? 0 });
     if (tile !== undefined) {
       tile.terrain = authoredTile.terrain ?? tile.terrain;
       tile.walkable = authoredTile.walkable ?? tile.walkable;
@@ -32,6 +37,7 @@ export function buildGrid(width = GRID_WIDTH, height = GRID_HEIGHT): Tile[] {
       tile.coverSides = { ...tile.coverSides, ...authoredTile.coverSides };
       tile.moveCost = authoredTile.moveCost ?? tile.moveCost;
       tile.blocksSight = authoredTile.blocksSight ?? tile.blocksSight;
+      tile.elevation = authoredTile.elevation ?? tile.elevation;
     }
   });
 
@@ -56,12 +62,17 @@ export function isWalkable(grid: Tile[], position: GridPosition): boolean {
   return Boolean(tile?.walkable && tile.occupiedBy === null);
 }
 
+export function isClimbable(from: Tile, to: Tile): boolean {
+  const elevationDiff = Math.abs(to.elevation - from.elevation);
+  return elevationDiff <= MAX_CLIMBABLE_ELEVATION;
+}
+
 export function getNeighbors(grid: Tile[], position: GridPosition): Tile[] {
   const candidates: GridPosition[] = [
-    { x: position.x, y: position.y - 1 },
-    { x: position.x + 1, y: position.y },
-    { x: position.x, y: position.y + 1 },
-    { x: position.x - 1, y: position.y },
+    { x: position.x, y: position.y - 1, elevation: position.elevation },
+    { x: position.x + 1, y: position.y, elevation: position.elevation },
+    { x: position.x, y: position.y + 1, elevation: position.elevation },
+    { x: position.x - 1, y: position.y, elevation: position.elevation },
   ];
 
   return candidates.flatMap((candidate) => {

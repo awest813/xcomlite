@@ -1,4 +1,4 @@
-import { getNeighbors, getTile, isWalkable } from "./Grid";
+import { getNeighbors, getTile, isClimbable, isWalkable } from "./Grid";
 import type { GridPosition, Tile, Unit } from "./types";
 
 export interface PathfindingResult {
@@ -31,7 +31,12 @@ export function calculateMovement(grid: Tile[], unit: Unit): PathfindingResult {
         return;
       }
 
-      const nextCost = currentCost + neighbor.moveCost;
+      if (!isClimbable(currentTile, neighbor)) {
+        return;
+      }
+
+      const elevationCost = Math.max(0, neighbor.elevation - currentTile.elevation);
+      const nextCost = currentCost + neighbor.moveCost + elevationCost;
       const neighborKey = tileKey(neighbor);
       const existingCost = costByTile.get(neighborKey);
 
@@ -41,7 +46,7 @@ export function calculateMovement(grid: Tile[], unit: Unit): PathfindingResult {
 
       costByTile.set(neighborKey, nextCost);
       previousByTile.set(neighborKey, tileKey(current));
-      openSet.push({ x: neighbor.x, y: neighbor.y });
+      openSet.push({ x: neighbor.x, y: neighbor.y, elevation: neighbor.elevation });
     });
   }
 
@@ -63,7 +68,7 @@ export function calculateMovement(grid: Tile[], unit: Unit): PathfindingResult {
   };
 }
 
-export function getPath(result: PathfindingResult, from: GridPosition, to: GridPosition): GridPosition[] {
+export function getPath(result: PathfindingResult, grid: Tile[], from: GridPosition, to: GridPosition): GridPosition[] {
   const startKey = tileKey(from);
   const destinationKey = tileKey(to);
 
@@ -75,7 +80,7 @@ export function getPath(result: PathfindingResult, from: GridPosition, to: GridP
   let currentKey: string | undefined = destinationKey;
 
   while (currentKey !== undefined && currentKey !== startKey) {
-    path.unshift(positionFromKey(currentKey));
+    path.unshift(positionFromKey(grid, currentKey));
     currentKey = result.previousByTile.get(currentKey);
   }
 
@@ -91,10 +96,11 @@ function getCost(costByTile: Map<string, number>, position: GridPosition): numbe
 }
 
 function getTileFromKey(grid: Tile[], key: string): Tile | undefined {
-  return getTile(grid, positionFromKey(key));
+  return getTile(grid, positionFromKey(grid, key));
 }
 
-function positionFromKey(key: string): GridPosition {
+function positionFromKey(grid: Tile[], key: string): GridPosition {
   const [x, y] = key.split(",").map(Number);
-  return { x, y };
+  const tile = getTile(grid, { x, y, elevation: 0 });
+  return { x, y, elevation: tile?.elevation ?? 0 };
 }

@@ -10,16 +10,43 @@ export interface Sightline {
 
 export function calculateSightline(grid: Tile[], from: GridPosition, target: Unit): Sightline {
   const path = getLineCells(from, target.position);
+  const fromTile = getTile(grid, from);
+  const fromElevation = fromTile?.elevation ?? 0;
+  const targetElevation = target.position.elevation;
+  const heightAdvantage = fromElevation - targetElevation;
+
   const blockers = path.slice(1, -1);
   const blockedTile = blockers
-    .map((position) => getTile(grid, position))
-    .find((tile) => tile?.blocksSight);
+    .map((position) => {
+      const tile = getTile(grid, position);
+      if (tile === undefined || !tile.blocksSight) {
+        return null;
+      }
+
+      const blockerElevation = tile.elevation;
+      const relativeHeight = blockerElevation - fromElevation;
+
+      if (heightAdvantage >= 2) {
+        return null;
+      }
+
+      if (relativeHeight >= 1 && heightAdvantage <= 0) {
+        return tile;
+      }
+
+      if (relativeHeight >= 2) {
+        return tile;
+      }
+
+      return tile;
+    })
+    .find((tile) => tile !== null);
 
   return {
     targetUnitId: target.id,
     path,
-    visible: blockedTile === undefined,
-    blockedAt: blockedTile === undefined ? null : { x: blockedTile.x, y: blockedTile.y },
+    visible: blockedTile === undefined || blockedTile === null,
+    blockedAt: blockedTile === undefined || blockedTile === null ? null : { x: blockedTile.x, y: blockedTile.y, elevation: blockedTile.elevation },
   };
 }
 
@@ -34,7 +61,7 @@ function getLineCells(from: GridPosition, to: GridPosition): GridPosition[] {
   let error = dx - dy;
 
   while (true) {
-    cells.push({ x, y });
+    cells.push({ x, y, elevation: 0 });
 
     if (x === to.x && y === to.y) {
       break;

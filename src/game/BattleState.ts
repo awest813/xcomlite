@@ -2,7 +2,8 @@ import { buildGrid, getNeighbors, getTile } from "./Grid";
 import { calculateSightline, type Sightline } from "./LineOfSight";
 import { calculateMovement, getPath, tileKey, type PathfindingResult } from "./Pathfinding";
 import { createEnemyUnits, createPlayerUnits } from "./Units";
-import type { BattlePhase, CoverDirection, GridPosition, MissionResult, MissionType, Team, Tile, Unit } from "./types";
+import type { MapLayout } from "../data/BattleMap";
+import type { Ability, AbilityType, BattlePhase, CoverDirection, GridPosition, MissionResult, MissionType, StatusEffectData, Team, Tile, Unit } from "./types";
 
 type BattleStateListener = () => void;
 
@@ -10,6 +11,12 @@ export interface ShotEvent {
   shooterPosition: GridPosition;
   targetPosition: GridPosition;
   hit: boolean;
+}
+
+export interface ExplosionEvent {
+  position: GridPosition;
+  radius: number;
+  damage: number;
 }
 
 export interface MovementEvent {
@@ -33,6 +40,7 @@ export interface AimPreview extends TargetPreview {
   range: number;
   rangeBand: RangeBand;
   hitChance: number;
+  damage: number;
 }
 
 export interface ShotResult {
@@ -47,39 +55,60 @@ export interface ShotResult {
   targetHp: number;
 }
 
+export interface ExplosionResult {
+  position: GridPosition;
+  radius: number;
+  damage: number;
+  unitsHit: { unitId: string; damage: number; killed: boolean }[];
+}
+
 const SHOOT_ACTION_POINT_COST = 1;
-const RIFLE_DAMAGE = 3;
-const OVERWATCH_ACTION_POINT_COST = 1;
 const OVERWATCH_HIT_PENALTY = 20;
+const SUPPRESSION_HIT_PENALTY = 30;
+const GRENADE_DAMAGE = 4;
+const GRENADE_RADIUS = 2;
+const MEDKIT_HEAL = 3;
+const FLASHBANG_RADIUS = 2;
+const FLASHBANG_DURATION = 1;
+const SMOKE_RADIUS = 2;
+const PANIC_DAMAGE_WILL = 10;
+const WILL_RECOVERY_PER_TURN = 5;
 
 export class BattleState {
   readonly grid: Tile[];
   readonly units: Unit[];
+  readonly mapLayout: MapLayout;
   selectedUnitId: string | null = null;
   selectedTargetUnitId: string | null = null;
   hoveredTilePosition: GridPosition | null = null;
   lastShotResult: ShotResult | null = null;
+  lastExplosionResult: ExplosionResult | null = null;
   currentTeam: Team = "player";
   phase: BattlePhase = "selecting";
   missionType: MissionType = "eliminate";
   missionResult: MissionResult = "in_progress";
-  extractZone: GridPosition | null = { x: 9, y: 9 };
+  extractZone: GridPosition | null = { x: 9, y: 9, elevation: 0 };
+  grenadeTargetTile: GridPosition | null = null;
+  selectedAbility: Ability | null = null;
 
   private readonly listeners = new Set<BattleStateListener>();
   private selectedMovementCache: PathfindingResult | null = null;
   private readonly movementEvents: MovementEvent[] = [];
   private readonly shotEvents: ShotEvent[] = [];
+  private readonly explosionEvents: ExplosionEvent[] = [];
   private shotCounter = 0;
 
-  constructor() {
-    this.grid = buildGrid();
-    this.units = [...createPlayerUnits(), ...createEnemyUnits()];
+  constructor(layout: MapLayout) {
+    this.mapLayout = layout;
+    this.grid = buildGrid(layout);
+    this.units = [...createPlayerUnits(layout.playerStarts), ...createEnemyUnits(layout.enemyStarts)];
     this.units.forEach((unit) => {
       const tile = getTile(this.grid, unit.position);
       if (tile !== undefined) {
         tile.occupiedBy = unit.id;
       }
     });
+    this.updateFogOfWar();
   }
 
   subscribe(listener: BattleStateListener): () => void {
@@ -112,6 +141,8 @@ export class BattleState {
 
     this.selectedUnitId = unit.id;
     this.selectedTargetUnitId = null;
+    this.selectedAbility = null;
+    this.grenadeTargetTile = null;
     this.phase = "moving";
     this.refreshSelectedMovementCache();
     this.notify();
@@ -124,6 +155,8 @@ export class BattleState {
     }
 
     this.selectedTargetUnitId = targetUnitId;
+    this.selectedAbility = null;
+    this.grenadeTargetTile = null;
     this.hoveredTilePosition = null;
     this.phase = "aiming";
     this.notify();
@@ -141,7 +174,10 @@ export class BattleState {
     if (position !== null) {
       this.selectedTargetUnitId = null;
       if (this.selectedUnit !== undefined) {
-        this.phase = "moving";
+        const throwTypes: AbilityType[] = ["grenade", "flashbang", "smoke"];
+        this.phase = this.selectedAbility !== null && throwTypes.includes(this.selectedAbility.type)
+          ? "grenade_aiming"
+          : "moving";
       }
     }
     this.notify();
@@ -150,6 +186,10 @@ export class BattleState {
   moveSelectedUnit(position: GridPosition): boolean {
     const unit = this.selectedUnit;
     if (unit === undefined || unit.team !== this.currentTeam || unit.actionPoints <= 0) {
+      return false;
+    }
+
+    if (this.phase !== "moving") {
       return false;
     }
 
@@ -169,7 +209,215 @@ export class BattleState {
       return null;
     }
 
-    return this.resolveShot(shooter, preview.targetUnitId);
+    if (this.phase !== "aiming") {
+      return null;
+    }
+
+    const origin = this.getPreviewOriginForSelectedUnit() ?? shooter.position;
+    const result = this.resolveShot(shooter, preview.targetUnitId, origin);
+    this.selectedTargetUnitId = null;
+    this.phase = shooter.actionPoints > 0 ? "moving" : "selecting";
+    this.notify();
+    return result;
+  }
+
+  selectAbility(abilityType: AbilityType): boolean {
+    const unit = this.selectedUnit;
+    if (unit === undefined || unit.team !== "player" || this.currentTeam !== "player") {
+      return false;
+    }
+
+    const ability = unit.abilities.find((a) => a.type === abilityType && a.uses > 0);
+    if (ability === undefined) {
+      return false;
+    }
+
+    this.selectedAbility = ability;
+    this.selectedTargetUnitId = null;
+
+    if (abilityType === "grenade" || abilityType === "flashbang" || abilityType === "smoke") {
+      this.phase = "grenade_aiming";
+    } else if (abilityType === "medkit") {
+      this.phase = "ability_select";
+    } else if (abilityType === "overwatch") {
+      return this.enterOverwatch();
+    } else if (abilityType === "suppression") {
+      return this.enterSuppression();
+    }
+
+    this.notify();
+    return true;
+  }
+
+  throwGrenade(): ExplosionResult | null {
+    const unit = this.selectedUnit;
+    const target = this.hoveredTile;
+
+    if (unit === undefined || target === undefined || this.selectedAbility === undefined) {
+      return null;
+    }
+
+    const ability = this.selectedAbility!;
+
+    if (ability.type !== "grenade") {
+      return null;
+    }
+
+    if (unit.actionPoints < ability.apCost) {
+      return null;
+    }
+
+    unit.actionPoints -= ability.apCost;
+    ability.uses -= 1;
+
+    const result = this.createExplosion({ x: target.x, y: target.y, elevation: target.elevation }, GRENADE_RADIUS, GRENADE_DAMAGE);
+    this.lastExplosionResult = result;
+    this.explosionEvents.push({ position: { x: target.x, y: target.y, elevation: target.elevation }, radius: GRENADE_RADIUS, damage: GRENADE_DAMAGE });
+
+    this.selectedAbility = null;
+    this.phase = unit.actionPoints > 0 ? "moving" : "selecting";
+    this.notify();
+    return result;
+  }
+
+  useMedkit(targetUnitId: string): boolean {
+    const unit = this.selectedUnit;
+    const target = this.units.find((u) => u.id === targetUnitId);
+
+    if (unit === undefined || target === undefined || this.selectedAbility === undefined) {
+      return false;
+    }
+
+    const ability = this.selectedAbility!;
+
+    if (ability.type !== "medkit") {
+      return false;
+    }
+
+    if (unit.actionPoints < ability.apCost) {
+      return false;
+    }
+
+    if (target.team !== unit.team) {
+      return false;
+    }
+
+    if (target.hp >= target.maxHp) {
+      return false;
+    }
+
+    unit.actionPoints -= ability.apCost;
+    ability.uses -= 1;
+    target.hp = Math.min(target.maxHp, target.hp + MEDKIT_HEAL);
+
+    this.selectedAbility = null;
+    this.phase = unit.actionPoints > 0 ? "moving" : "selecting";
+    this.notify();
+    return true;
+  }
+
+  throwFlashbang(): ExplosionResult | null {
+    const unit = this.selectedUnit;
+    const target = this.hoveredTile;
+
+    if (unit === undefined || target === undefined || this.selectedAbility === undefined) {
+      return null;
+    }
+
+    const ability = this.selectedAbility!;
+
+    if (ability.type !== "flashbang") {
+      return null;
+    }
+
+    if (unit.actionPoints < ability.apCost) {
+      return null;
+    }
+
+    unit.actionPoints -= ability.apCost;
+    ability.uses -= 1;
+
+    const enemiesInRange = this.getUnitsInRadius({ x: target.x, y: target.y, elevation: target.elevation }, FLASHBANG_RADIUS);
+    const stunnedUnits: { unitId: string; damage: number; killed: boolean }[] = [];
+
+    for (const enemy of enemiesInRange) {
+      if (enemy.team !== unit.team) {
+        enemy.statusEffects.push({ type: "stunned", duration: FLASHBANG_DURATION, value: 0 });
+        stunnedUnits.push({ unitId: enemy.id, damage: 0, killed: false });
+      }
+    }
+
+    this.lastExplosionResult = { position: { x: target.x, y: target.y, elevation: target.elevation }, radius: FLASHBANG_RADIUS, damage: 0, unitsHit: stunnedUnits };
+    this.explosionEvents.push({ position: { x: target.x, y: target.y, elevation: target.elevation }, radius: FLASHBANG_RADIUS, damage: 0 });
+
+    this.selectedAbility = null;
+    this.phase = unit.actionPoints > 0 ? "moving" : "selecting";
+    this.notify();
+    return this.lastExplosionResult;
+  }
+
+  throwSmoke(): ExplosionResult | null {
+    const unit = this.selectedUnit;
+    const target = this.hoveredTile;
+
+    if (unit === undefined || target === undefined || this.selectedAbility === undefined) {
+      return null;
+    }
+
+    const ability = this.selectedAbility!;
+
+    if (ability.type !== "smoke") {
+      return null;
+    }
+
+    if (unit.actionPoints < ability.apCost) {
+      return null;
+    }
+
+    unit.actionPoints -= ability.apCost;
+    ability.uses -= 1;
+
+    const tilesInRange = this.getTilesInRadius({ x: target.x, y: target.y, elevation: target.elevation }, SMOKE_RADIUS);
+    for (const tile of tilesInRange) {
+      if (tile.cover === 0) {
+        tile.cover = 2;
+        tile.coverSides = { north: 2, east: 2, south: 2, west: 2 };
+        tile.destructible = true;
+      }
+    }
+
+    this.lastExplosionResult = { position: { x: target.x, y: target.y, elevation: target.elevation }, radius: SMOKE_RADIUS, damage: 0, unitsHit: [] };
+    this.explosionEvents.push({ position: { x: target.x, y: target.y, elevation: target.elevation }, radius: SMOKE_RADIUS, damage: 0 });
+
+    this.selectedAbility = null;
+    this.phase = unit.actionPoints > 0 ? "moving" : "selecting";
+    this.notify();
+    return this.lastExplosionResult;
+  }
+
+  enterSuppression(): boolean {
+    const unit = this.selectedUnit;
+
+    if (unit === undefined || this.selectedAbility === undefined) {
+      return false;
+    }
+
+    const ability = this.selectedAbility!;
+
+    if (ability.type !== "suppression") {
+      return false;
+    }
+
+    if (unit.actionPoints < ability.apCost) {
+      return false;
+    }
+
+    unit.actionPoints -= ability.apCost;
+    unit.isSuppressed = true;
+    this.selectedAbility = null;
+    this.phase = unit.actionPoints > 0 ? "moving" : "selecting";
+    this.notify();
+    return true;
   }
 
   enterOverwatch(): boolean {
@@ -177,45 +425,49 @@ export class BattleState {
     if (
       unit === undefined ||
       unit.team !== this.currentTeam ||
-      unit.actionPoints < OVERWATCH_ACTION_POINT_COST ||
+      unit.actionPoints < SHOOT_ACTION_POINT_COST ||
       unit.isOverwatch
     ) {
       return false;
     }
 
-    unit.actionPoints -= OVERWATCH_ACTION_POINT_COST;
+    unit.actionPoints -= SHOOT_ACTION_POINT_COST;
     unit.isOverwatch = true;
     this.selectedTargetUnitId = null;
+    this.selectedAbility = null;
     this.phase = unit.actionPoints > 0 ? "moving" : "selecting";
     this.notify();
     return true;
   }
 
-  private resolveShot(shooter: Unit, targetUnitId: string): ShotResult | null {
+  private resolveShot(shooter: Unit, targetUnitId: string, originOverride?: GridPosition): ShotResult | null {
     const target = this.units.find((unit) => unit.id === targetUnitId);
     if (target === undefined) {
       return null;
     }
 
-    const preview = this.getAimPreviewForTargetFromPosition(shooter.position, targetUnitId);
+    const origin = originOverride ?? shooter.position;
+    const preview = this.getAimPreviewForTargetFromPosition(origin, targetUnitId);
     if (preview === null || !preview.visible) {
       return null;
     }
 
     shooter.actionPoints -= SHOOT_ACTION_POINT_COST;
-    return this.executeShot(shooter, target, preview.hitChance);
+    return this.executeShot(shooter, target, preview.hitChance, preview.damage);
   }
 
-  private executeShot(shooter: Unit, target: Unit, hitChance: number): ShotResult {
+  private executeShot(shooter: Unit, target: Unit, hitChance: number, weaponDamage: number): ShotResult {
     const shooterPos = { ...shooter.position };
     const targetPos = { ...target.position };
 
     const roll = this.rollShot();
     const hit = roll <= hitChance;
-    const damage = hit ? RIFLE_DAMAGE : 0;
+    const damage = hit ? weaponDamage : 0;
 
     if (hit) {
       target.hp = Math.max(0, target.hp - damage);
+      this.damageCoverAt(target.position);
+      this.checkPanic(target, shooter);
     }
 
     const result: ShotResult = {
@@ -232,12 +484,100 @@ export class BattleState {
 
     if (result.killed) {
       this.removeUnit(target.id);
+      this.checkPanicOnDeath(shooter);
     }
 
     this.lastShotResult = result;
     this.shotEvents.push({ shooterPosition: shooterPos, targetPosition: targetPos, hit: result.hit });
     this.notify();
     return result;
+  }
+
+  private createExplosion(position: GridPosition, radius: number, damage: number): ExplosionResult {
+    const unitsInRange = this.getUnitsInRadius(position, radius);
+    const unitsHit: { unitId: string; damage: number; killed: boolean }[] = [];
+
+    for (const unit of unitsInRange) {
+      const distance = getManhattanDistance(position, unit.position);
+      const falloff = distance === 0 ? 1 : distance === 1 ? 0.75 : 0.5;
+      const actualDamage = Math.round(damage * falloff);
+
+      if (actualDamage > 0) {
+        unit.hp = Math.max(0, unit.hp - actualDamage);
+        this.damageCoverAt(unit.position);
+        this.checkPanic(unit, null);
+
+        if (unit.hp === 0) {
+          this.removeUnit(unit.id);
+        }
+
+        unitsHit.push({ unitId: unit.id, damage: actualDamage, killed: unit.hp === 0 });
+      }
+    }
+
+    return { position, radius, damage, unitsHit };
+  }
+
+  private damageCoverAt(position: GridPosition): void {
+    const tile = getTile(this.grid, position);
+    if (tile === undefined) {
+      return;
+    }
+
+    for (const neighbor of getNeighbors(this.grid, position)) {
+      if (neighbor.cover > 0) {
+        neighbor.cover = Math.max(0, neighbor.cover - 1);
+        if (neighbor.cover === 0) {
+          neighbor.coverSides = { north: 0, east: 0, south: 0, west: 0 };
+          neighbor.destructible = false;
+        }
+      }
+    }
+
+    if (tile.destructible && tile.cover > 0) {
+      tile.cover = Math.max(0, tile.cover - 1);
+      if (tile.cover === 0) {
+        tile.coverSides = { north: 0, east: 0, south: 0, west: 0 };
+        tile.destructible = false;
+      }
+    }
+  }
+
+  private checkPanic(target: Unit, _shooter: Unit | null): void {
+    if (target.isPanicked) {
+      return;
+    }
+
+    target.will -= PANIC_DAMAGE_WILL;
+
+    if (target.will <= 0) {
+      target.isPanicked = true;
+      target.statusEffects.push({ type: "panicked", duration: 1, value: 0 });
+    }
+  }
+
+  private checkPanicOnDeath(shooter: Unit): void {
+    const allies = this.units.filter((u) => u.team !== shooter.team && !u.isPanicked);
+    for (const ally of allies) {
+      const distance = getManhattanDistance(shooter.position, ally.position);
+      if (distance <= 3) {
+        this.checkPanic(ally, shooter);
+      }
+    }
+  }
+
+  private getUnitsInRadius(center: GridPosition, radius: number): Unit[] {
+    return this.units.filter((unit) => {
+      const distance = getManhattanDistance(center, unit.position);
+      return distance <= radius;
+    });
+  }
+
+  private getTilesInRadius(center: GridPosition, radius: number): Tile[] {
+    return this.grid.filter((tile) => {
+      const distance = getManhattanDistance(center, tile);
+      return distance <= radius;
+    });
   }
 
   private getAimPreviewForTargetFromPosition(fromPosition: GridPosition, targetUnitId: string): AimPreview | null {
@@ -259,7 +599,7 @@ export class BattleState {
 
     const range = getManhattanDistance(fromPosition, target.position);
     const rangeBand = getRangeBand(range);
-    const hitChance = calculateHitChance(cover, flanked, rangeBand);
+    const hitChance = calculateHitChance(cover, flanked, rangeBand, shooter.weapon.aimBonus, shooter.isSuppressed);
 
     return {
       targetUnitId: target.id,
@@ -272,6 +612,7 @@ export class BattleState {
       range,
       rangeBand,
       hitChance,
+      damage: shooter.weapon.damage,
     };
   }
 
@@ -280,17 +621,71 @@ export class BattleState {
       return;
     }
 
+    if (this.currentTeam !== "player") {
+      return;
+    }
+
+    this.processStatusEffects(this.currentTeam);
+    this.recoverWill(this.currentTeam);
+
     this.currentTeam = this.currentTeam === "player" ? "enemy" : "player";
     this.selectedUnitId = null;
     this.selectedTargetUnitId = null;
+    this.selectedAbility = null;
+    this.grenadeTargetTile = null;
     this.selectedMovementCache = null;
     this.hoveredTilePosition = null;
     this.phase = "selecting";
     this.resetActionPoints(this.currentTeam);
     this.resetMovementPoints(this.currentTeam);
-    this.clearOverwatch(this.currentTeam === "player" ? "enemy" : "player");
+    this.clearOverwatch(this.currentTeam);
+    this.clearSuppression(this.currentTeam);
     this.checkMissionResult();
     this.notify();
+    this.updateFogOfWar();
+  }
+
+  private processStatusEffects(team: Team): void {
+    for (const unit of this.units) {
+      if (unit.team !== team) {
+        continue;
+      }
+      const newEffects: StatusEffectData[] = [];
+      for (const effect of unit.statusEffects) {
+        if (effect.type === "stunned") {
+          if (effect.duration > 0) {
+            effect.duration -= 1;
+            if (effect.duration > 0) {
+              newEffects.push(effect);
+            }
+          }
+        } else if (effect.type === "burning") {
+          unit.hp = Math.max(0, unit.hp - effect.value);
+          effect.duration -= 1;
+          if (effect.duration > 0 && unit.hp > 0) {
+            newEffects.push(effect);
+          }
+        } else if (effect.type === "panicked") {
+          effect.duration -= 1;
+          if (effect.duration > 0) {
+            newEffects.push(effect);
+          } else {
+            unit.isPanicked = false;
+          }
+        } else {
+          newEffects.push(effect);
+        }
+      }
+      unit.statusEffects = newEffects;
+    }
+  }
+
+  private recoverWill(team: Team): void {
+    this.units
+      .filter((u) => u.team === team)
+      .forEach((u) => {
+        u.will = Math.min(u.maxWill, u.will + WILL_RECOVERY_PER_TURN);
+      });
   }
 
   checkMissionResult(): void {
@@ -327,7 +722,7 @@ export class BattleState {
     });
 
     this.units.length = 0;
-    const newUnits = [...createPlayerUnits(), ...createEnemyUnits()];
+    const newUnits = [...createPlayerUnits(this.mapLayout.playerStarts), ...createEnemyUnits(this.mapLayout.enemyStarts)];
     newUnits.forEach((unit) => {
       this.units.push(unit);
       const tile = getTile(this.grid, unit.position);
@@ -338,14 +733,18 @@ export class BattleState {
 
     this.selectedUnitId = null;
     this.selectedTargetUnitId = null;
+    this.selectedAbility = null;
+    this.grenadeTargetTile = null;
     this.hoveredTilePosition = null;
     this.lastShotResult = null;
+    this.lastExplosionResult = null;
     this.currentTeam = "player";
     this.phase = "selecting";
     this.missionResult = "in_progress";
     this.selectedMovementCache = null;
     this.movementEvents.length = 0;
     this.shotEvents.length = 0;
+    this.explosionEvents.length = 0;
     this.shotCounter = 0;
     this.notify();
   }
@@ -355,6 +754,14 @@ export class BattleState {
       .filter((unit) => unit.team === team)
       .forEach((unit) => {
         unit.isOverwatch = false;
+      });
+  }
+
+  clearSuppression(team: Team): void {
+    this.units
+      .filter((unit) => unit.team === team)
+      .forEach((unit) => {
+        unit.isSuppressed = false;
       });
   }
 
@@ -404,7 +811,7 @@ export class BattleState {
 
     const hoveredTile = this.hoveredTile;
     if (hoveredTile !== undefined && this.getPathCostForSelectedUnit(hoveredTile) !== undefined) {
-      return { x: hoveredTile.x, y: hoveredTile.y };
+      return { x: hoveredTile.x, y: hoveredTile.y, elevation: hoveredTile.elevation };
     }
 
     return { ...selectedUnit.position };
@@ -468,7 +875,8 @@ export class BattleState {
       targetName: target.name,
       range,
       rangeBand,
-      hitChance: calculateHitChance(targetPreview.cover, targetPreview.flanked, rangeBand),
+      hitChance: calculateHitChance(targetPreview.cover, targetPreview.flanked, rangeBand, shooter.weapon.aimBonus, shooter.isSuppressed),
+      damage: shooter.weapon.damage,
     };
   }
 
@@ -478,6 +886,10 @@ export class BattleState {
 
   drainShotEvents(): ShotEvent[] {
     return this.shotEvents.splice(0);
+  }
+
+  drainExplosionEvents(): ExplosionEvent[] {
+    return this.explosionEvents.splice(0);
   }
 
   runEnemyTurn(): void {
@@ -492,13 +904,33 @@ export class BattleState {
         continue;
       }
 
+      if (enemy.statusEffects.some((e) => e.type === "stunned")) {
+        continue;
+      }
+
       const actionResult = this.runEnemyAction(enemy);
       if (actionResult === "done") {
         break;
       }
     }
 
-    this.endTurn();
+    this.processStatusEffects("enemy");
+    this.recoverWill("enemy");
+    this.currentTeam = "player";
+    this.resetActionPoints("player");
+    this.resetMovementPoints("player");
+    this.clearOverwatch("player");
+    this.clearSuppression("player");
+    this.phase = "selecting";
+    this.selectedUnitId = null;
+    this.selectedTargetUnitId = null;
+    this.selectedAbility = null;
+    this.grenadeTargetTile = null;
+    this.selectedMovementCache = null;
+    this.hoveredTilePosition = null;
+    this.checkMissionResult();
+    this.notify();
+    this.updateFogOfWar();
   }
 
   private runEnemyAction(enemy: Unit): "continue" | "done" {
@@ -556,7 +988,7 @@ export class BattleState {
 
     const range = getManhattanDistance(enemy.position, targetUnit.position);
     const rangeBand = getRangeBand(range);
-    const hitChance = calculateHitChance(target.cover, target.flanked, rangeBand);
+    const hitChance = calculateHitChance(target.cover, target.flanked, rangeBand, enemy.weapon.aimBonus, enemy.isSuppressed);
 
     const shooterPos = { ...enemy.position };
     const targetPos = { ...targetUnit.position };
@@ -564,10 +996,12 @@ export class BattleState {
     enemy.actionPoints -= SHOOT_ACTION_POINT_COST;
     const roll = this.rollShot();
     const hit = roll <= hitChance;
-    const damage = hit ? RIFLE_DAMAGE : 0;
+    const damage = hit ? enemy.weapon.damage : 0;
 
     if (hit) {
       targetUnit.hp = Math.max(0, targetUnit.hp - damage);
+      this.damageCoverAt(targetUnit.position);
+      this.checkPanic(targetUnit, enemy);
     }
 
     const result: ShotResult = {
@@ -584,6 +1018,7 @@ export class BattleState {
 
     if (result.killed) {
       this.removeUnit(targetUnit.id);
+      this.checkPanicOnDeath(enemy);
     }
 
     this.lastShotResult = result;
@@ -627,7 +1062,7 @@ export class BattleState {
       return false;
     }
 
-    this.moveUnit(enemy, { x: nextTile.x, y: nextTile.y }, true);
+    this.moveUnit(enemy, { x: nextTile.x, y: nextTile.y, elevation: nextTile.elevation }, true);
     return true;
   }
 
@@ -637,7 +1072,7 @@ export class BattleState {
     }
 
     const movement = this.getMovementForUnit(unit);
-    const path = getPath(movement, unit.position, position);
+    const path = getPath(movement, this.grid, unit.position, position);
     const movementCost = movement.costByTile.get(tileKey(position));
     const previousTile = getTile(this.grid, unit.position);
     const nextTile = getTile(this.grid, position);
@@ -651,6 +1086,7 @@ export class BattleState {
     unit.position = { ...position };
     unit.movementPoints -= movementCost;
     this.selectedTargetUnitId = null;
+    this.selectedAbility = null;
     this.refreshSelectedMovementCache();
 
     this.triggerOverwatchShots(unit, path);
@@ -659,6 +1095,7 @@ export class BattleState {
 
     if (shouldNotify) {
       this.notify();
+      this.updateFogOfWar();
     }
 
     return true;
@@ -669,14 +1106,18 @@ export class BattleState {
       (u) => u.team !== movingUnit.team && u.isOverwatch && u.actionPoints >= SHOOT_ACTION_POINT_COST
     );
 
-    for (const overwatchUnit of overwatchUnits) {
+    const suppressionUnits = this.units.filter(
+      (u) => u.team !== movingUnit.team && u.isSuppressed && u.actionPoints >= SHOOT_ACTION_POINT_COST
+    );
+
+    for (const reactiveUnit of [...overwatchUnits, ...suppressionUnits]) {
       let triggered = false;
       for (const step of path) {
         if (triggered) {
           break;
         }
 
-        const sightline = calculateSightline(this.grid, overwatchUnit.position, {
+        const sightline = calculateSightline(this.grid, reactiveUnit.position, {
           id: "temp",
           name: "temp",
           team: movingUnit.team,
@@ -688,21 +1129,32 @@ export class BattleState {
           maxMovementPoints: 0,
           position: step,
           isOverwatch: false,
+          isSuppressed: false,
+          isPanicked: false,
+          unitClass: "assault",
+          weapon: reactiveUnit.weapon,
+          abilities: [],
+          statusEffects: [],
+          will: 50,
+          maxWill: 50,
         });
 
         if (sightline.visible) {
-          const coverDirection = getCoverDirectionTowardAttacker(overwatchUnit.position, movingUnit.position);
+          const coverDirection = getCoverDirectionTowardAttacker(reactiveUnit.position, movingUnit.position);
           const targetTile = getTile(this.grid, movingUnit.position);
           const cover = targetTile?.coverSides[coverDirection] ?? 0;
           const flanked = cover === 0;
-          const range = getManhattanDistance(overwatchUnit.position, movingUnit.position);
+          const range = getManhattanDistance(reactiveUnit.position, movingUnit.position);
           const rangeBand = getRangeBand(range);
-          const hitChance = Math.max(10, calculateHitChance(cover, flanked, rangeBand) - OVERWATCH_HIT_PENALTY);
+          const penalty = reactiveUnit.isSuppressed ? SUPPRESSION_HIT_PENALTY : OVERWATCH_HIT_PENALTY;
+          const hitChance = Math.max(10, calculateHitChance(cover, flanked, rangeBand, reactiveUnit.weapon.aimBonus, false) - penalty);
 
-          overwatchUnit.actionPoints -= SHOOT_ACTION_POINT_COST;
-          overwatchUnit.isOverwatch = false;
+          reactiveUnit.actionPoints -= SHOOT_ACTION_POINT_COST;
+          if (reactiveUnit.isOverwatch) {
+            reactiveUnit.isOverwatch = false;
+          }
 
-          this.executeShot(overwatchUnit, movingUnit, hitChance);
+          this.executeShot(reactiveUnit, movingUnit, hitChance, reactiveUnit.weapon.damage);
           triggered = true;
         }
       }
@@ -710,7 +1162,7 @@ export class BattleState {
   }
 
   private getPathForUnit(unit: Unit, destination: GridPosition): GridPosition[] {
-    return getPath(this.getMovementForUnit(unit), unit.position, destination);
+    return getPath(this.getMovementForUnit(unit), this.grid, unit.position, destination);
   }
 
   private getMovementForUnit(unit: Unit): PathfindingResult {
@@ -760,6 +1212,50 @@ export class BattleState {
     return roll;
   }
 
+  private updateFogOfWar(): void {
+    this.grid.forEach((tile) => {
+      if (tile.fogState === "visible") {
+        tile.fogState = "explored";
+      }
+    });
+
+    const playerUnits = this.units.filter((u) => u.team === "player");
+    for (const unit of playerUnits) {
+      const sightRadius = unit.unitClass === "sniper" ? 6 : 5;
+      for (const tile of this.grid) {
+        if (tile.fogState === "hidden") {
+          const distance = getManhattanDistance(unit.position, tile);
+          if (distance <= sightRadius) {
+            const sightline = calculateSightline(this.grid, unit.position, {
+              id: "temp",
+              name: "temp",
+              team: "enemy",
+              hp: 1,
+              maxHp: 1,
+              actionPoints: 0,
+              maxActionPoints: 0,
+              movementPoints: 0,
+              maxMovementPoints: 0,
+              position: { x: tile.x, y: tile.y, elevation: tile.elevation },
+              isOverwatch: false,
+              isSuppressed: false,
+              isPanicked: false,
+              unitClass: "assault",
+              weapon: unit.weapon,
+              abilities: [],
+              statusEffects: [],
+              will: 50,
+              maxWill: 50,
+            });
+            if (sightline.visible) {
+              tile.fogState = "visible";
+            }
+          }
+        }
+      }
+    }
+  }
+
   private notify(): void {
     this.listeners.forEach((listener) => listener());
   }
@@ -792,10 +1288,11 @@ function getRangeBand(range: number): RangeBand {
   return "long";
 }
 
-function calculateHitChance(cover: number, flanked: boolean, rangeBand: RangeBand): number {
+function calculateHitChance(cover: number, flanked: boolean, rangeBand: RangeBand, aimBonus: number = 0, isSuppressed: boolean = false): number {
   const coverModifier = flanked ? 20 : cover === 1 ? -20 : cover >= 2 ? -40 : 0;
   const rangeModifier = rangeBand === "close" ? 10 : rangeBand === "long" ? -15 : 0;
-  return clamp(65 + coverModifier + rangeModifier, 10, 95);
+  const suppressionModifier = isSuppressed ? -20 : 0;
+  return clamp(65 + coverModifier + rangeModifier + aimBonus + suppressionModifier, 10, 95);
 }
 
 function clamp(value: number, min: number, max: number): number {

@@ -4,9 +4,10 @@ const ENEMY_TURN_DELAY_MS = 450;
 
 export class TurnController {
   private enemyTurnQueued = false;
+  private unsubscribe: (() => void) | null = null;
 
   constructor(private readonly battleState: BattleState) {
-    this.battleState.subscribe(() => this.queueEnemyTurn());
+    this.unsubscribe = this.battleState.subscribe(() => this.queueEnemyTurn());
   }
 
   private queueEnemyTurn(): void {
@@ -19,5 +20,10 @@ export class TurnController {
       this.enemyTurnQueued = false;
       this.battleState.runEnemyTurn();
     }, ENEMY_TURN_DELAY_MS);
+  }
+
+  dispose(): void {
+    this.unsubscribe?.();
+    this.unsubscribe = null;
   }
 }
