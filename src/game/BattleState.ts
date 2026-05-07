@@ -2,9 +2,15 @@ import { buildGrid, getNeighbors, getTile } from "./Grid";
 import { calculateSightline, type Sightline } from "./LineOfSight";
 import { calculateMovement, getPath, tileKey, type PathfindingResult } from "./Pathfinding";
 import { createEnemyUnits, createPlayerUnits } from "./Units";
-import type { BattlePhase, CoverDirection, GridPosition, Team, Tile, Unit } from "./types";
+import type { BattlePhase, CoverDirection, GridPosition, MissionResult, MissionType, Team, Tile, Unit } from "./types";
 
 type BattleStateListener = () => void;
+
+export interface ShotEvent {
+  shooterPosition: GridPosition;
+  targetPosition: GridPosition;
+  hit: boolean;
+}
 
 export interface MovementEvent {
   unitId: string;
@@ -43,6 +49,8 @@ export interface ShotResult {
 
 const SHOOT_ACTION_POINT_COST = 1;
 const RIFLE_DAMAGE = 3;
+const OVERWATCH_ACTION_POINT_COST = 1;
+const OVERWATCH_HIT_PENALTY = 20;
 
 export class BattleState {
   readonly grid: Tile[];
@@ -53,10 +61,14 @@ export class BattleState {
   lastShotResult: ShotResult | null = null;
   currentTeam: Team = "player";
   phase: BattlePhase = "selecting";
+  missionType: MissionType = "eliminate";
+  missionResult: MissionResult = "in_progress";
+  extractZone: GridPosition | null = { x: 9, y: 9 };
 
   private readonly listeners = new Set<BattleStateListener>();
   private selectedMovementCache: PathfindingResult | null = null;
   private readonly movementEvents: MovementEvent[] = [];
+  private readonly shotEvents: ShotEvent[] = [];
   private shotCounter = 0;
 
   constructor() {
@@ -157,14 +169,49 @@ export class BattleState {
       return null;
     }
 
-    const target = this.units.find((unit) => unit.id === preview.targetUnitId);
+    return this.resolveShot(shooter, preview.targetUnitId);
+  }
+
+  enterOverwatch(): boolean {
+    const unit = this.selectedUnit;
+    if (
+      unit === undefined ||
+      unit.team !== this.currentTeam ||
+      unit.actionPoints < OVERWATCH_ACTION_POINT_COST ||
+      unit.isOverwatch
+    ) {
+      return false;
+    }
+
+    unit.actionPoints -= OVERWATCH_ACTION_POINT_COST;
+    unit.isOverwatch = true;
+    this.selectedTargetUnitId = null;
+    this.phase = unit.actionPoints > 0 ? "moving" : "selecting";
+    this.notify();
+    return true;
+  }
+
+  private resolveShot(shooter: Unit, targetUnitId: string): ShotResult | null {
+    const target = this.units.find((unit) => unit.id === targetUnitId);
     if (target === undefined) {
       return null;
     }
 
+    const preview = this.getAimPreviewForTargetFromPosition(shooter.position, targetUnitId);
+    if (preview === null || !preview.visible) {
+      return null;
+    }
+
     shooter.actionPoints -= SHOOT_ACTION_POINT_COST;
+    return this.executeShot(shooter, target, preview.hitChance);
+  }
+
+  private executeShot(shooter: Unit, target: Unit, hitChance: number): ShotResult {
+    const shooterPos = { ...shooter.position };
+    const targetPos = { ...target.position };
+
     const roll = this.rollShot();
-    const hit = roll <= preview.hitChance;
+    const hit = roll <= hitChance;
     const damage = hit ? RIFLE_DAMAGE : 0;
 
     if (hit) {
@@ -175,7 +222,7 @@ export class BattleState {
       shooterUnitId: shooter.id,
       targetUnitId: target.id,
       targetName: target.name,
-      hitChance: preview.hitChance,
+      hitChance,
       roll,
       hit,
       damage,
@@ -188,13 +235,51 @@ export class BattleState {
     }
 
     this.lastShotResult = result;
-    this.selectedTargetUnitId = null;
-    this.phase = shooter.actionPoints > 0 ? "moving" : "selecting";
+    this.shotEvents.push({ shooterPosition: shooterPos, targetPosition: targetPos, hit: result.hit });
     this.notify();
     return result;
   }
 
+  private getAimPreviewForTargetFromPosition(fromPosition: GridPosition, targetUnitId: string): AimPreview | null {
+    const shooter = this.units.find((u) => u.position.x === fromPosition.x && u.position.y === fromPosition.y && u.team === this.currentTeam);
+    const target = this.units.find((unit) => unit.id === targetUnitId && unit.team !== shooter?.team);
+    if (shooter === undefined || target === undefined) {
+      return null;
+    }
+
+    const sightline = calculateSightline(this.grid, fromPosition, target);
+    if (!sightline.visible) {
+      return null;
+    }
+
+    const coverDirection = getCoverDirectionTowardAttacker(fromPosition, target.position);
+    const targetTile = getTile(this.grid, target.position);
+    const cover = targetTile?.coverSides[coverDirection] ?? 0;
+    const flanked = cover === 0;
+
+    const range = getManhattanDistance(fromPosition, target.position);
+    const rangeBand = getRangeBand(range);
+    const hitChance = calculateHitChance(cover, flanked, rangeBand);
+
+    return {
+      targetUnitId: target.id,
+      visible: true,
+      coverDirection,
+      cover,
+      flanked,
+      shooterUnitId: shooter.id,
+      targetName: target.name,
+      range,
+      rangeBand,
+      hitChance,
+    };
+  }
+
   endTurn(): void {
+    if (this.missionResult !== "in_progress") {
+      return;
+    }
+
     this.currentTeam = this.currentTeam === "player" ? "enemy" : "player";
     this.selectedUnitId = null;
     this.selectedTargetUnitId = null;
@@ -203,7 +288,74 @@ export class BattleState {
     this.phase = "selecting";
     this.resetActionPoints(this.currentTeam);
     this.resetMovementPoints(this.currentTeam);
+    this.clearOverwatch(this.currentTeam === "player" ? "enemy" : "player");
+    this.checkMissionResult();
     this.notify();
+  }
+
+  checkMissionResult(): void {
+    if (this.missionResult !== "in_progress") {
+      return;
+    }
+
+    const playerUnits = this.units.filter((u) => u.team === "player");
+    const enemyUnits = this.units.filter((u) => u.team === "enemy");
+
+    if (enemyUnits.length === 0) {
+      this.missionResult = "victory";
+      return;
+    }
+
+    if (playerUnits.length === 0) {
+      this.missionResult = "defeat";
+      return;
+    }
+
+    if (this.missionType === "extract" && this.extractZone !== null) {
+      const unitOnExtract = playerUnits.find(
+        (u) => u.position.x === this.extractZone!.x && u.position.y === this.extractZone!.y
+      );
+      if (unitOnExtract !== undefined) {
+        this.missionResult = "victory";
+      }
+    }
+  }
+
+  restartMission(): void {
+    this.grid.forEach((tile) => {
+      tile.occupiedBy = null;
+    });
+
+    this.units.length = 0;
+    const newUnits = [...createPlayerUnits(), ...createEnemyUnits()];
+    newUnits.forEach((unit) => {
+      this.units.push(unit);
+      const tile = getTile(this.grid, unit.position);
+      if (tile !== undefined) {
+        tile.occupiedBy = unit.id;
+      }
+    });
+
+    this.selectedUnitId = null;
+    this.selectedTargetUnitId = null;
+    this.hoveredTilePosition = null;
+    this.lastShotResult = null;
+    this.currentTeam = "player";
+    this.phase = "selecting";
+    this.missionResult = "in_progress";
+    this.selectedMovementCache = null;
+    this.movementEvents.length = 0;
+    this.shotEvents.length = 0;
+    this.shotCounter = 0;
+    this.notify();
+  }
+
+  clearOverwatch(team: Team): void {
+    this.units
+      .filter((unit) => unit.team === team)
+      .forEach((unit) => {
+        unit.isOverwatch = false;
+      });
   }
 
   resetActionPoints(team: Team = this.currentTeam): void {
@@ -324,21 +476,159 @@ export class BattleState {
     return this.movementEvents.splice(0);
   }
 
+  drainShotEvents(): ShotEvent[] {
+    return this.shotEvents.splice(0);
+  }
+
   runEnemyTurn(): void {
     if (this.currentTeam !== "enemy") {
       return;
     }
 
-    this.units
-      .filter((unit) => unit.team === "enemy")
-      .forEach((unit) => {
-        const nextPosition = this.getEnemyStep(unit);
-        if (nextPosition !== undefined) {
-          this.moveUnit(unit, nextPosition, false);
-        }
-      });
+    const enemyUnits = this.units.filter((unit) => unit.team === "enemy");
+
+    for (const enemy of enemyUnits) {
+      if (!this.units.some((u) => u.id === enemy.id)) {
+        continue;
+      }
+
+      const actionResult = this.runEnemyAction(enemy);
+      if (actionResult === "done") {
+        break;
+      }
+    }
 
     this.endTurn();
+  }
+
+  private runEnemyAction(enemy: Unit): "continue" | "done" {
+    const playerUnits = this.units.filter((unit) => unit.team === "player");
+    if (playerUnits.length === 0) {
+      return "done";
+    }
+
+    const visibleTargets = this.getVisiblePlayerTargets(enemy, playerUnits);
+
+    if (visibleTargets.length > 0 && enemy.actionPoints >= SHOOT_ACTION_POINT_COST) {
+      const flankedTargets = visibleTargets.filter((t) => t.flanked);
+      const target = flankedTargets.length > 0 ? flankedTargets[0] : visibleTargets[0];
+      return this.enemyShootAtTarget(enemy, target);
+    }
+
+    if (enemy.actionPoints > 0) {
+      const moveResult = this.enemyMoveToBetterPosition(enemy, playerUnits, visibleTargets);
+      if (moveResult) {
+        return "continue";
+      }
+    }
+
+    return "continue";
+  }
+
+  private getVisiblePlayerTargets(enemy: Unit, playerUnits: Unit[]): TargetPreview[] {
+    return playerUnits
+      .map((target) => {
+        const sightline = calculateSightline(this.grid, enemy.position, target);
+        if (!sightline.visible) {
+          return null;
+        }
+
+        const coverDirection = getCoverDirectionTowardAttacker(enemy.position, target.position);
+        const targetTile = getTile(this.grid, target.position);
+        const cover = targetTile?.coverSides[coverDirection] ?? 0;
+
+        return {
+          targetUnitId: target.id,
+          visible: true,
+          coverDirection,
+          cover,
+          flanked: cover === 0,
+        };
+      })
+      .filter((t): t is TargetPreview => t !== null);
+  }
+
+  private enemyShootAtTarget(enemy: Unit, target: TargetPreview): "continue" | "done" {
+    const targetUnit = this.units.find((u) => u.id === target.targetUnitId);
+    if (targetUnit === undefined) {
+      return "continue";
+    }
+
+    const range = getManhattanDistance(enemy.position, targetUnit.position);
+    const rangeBand = getRangeBand(range);
+    const hitChance = calculateHitChance(target.cover, target.flanked, rangeBand);
+
+    const shooterPos = { ...enemy.position };
+    const targetPos = { ...targetUnit.position };
+
+    enemy.actionPoints -= SHOOT_ACTION_POINT_COST;
+    const roll = this.rollShot();
+    const hit = roll <= hitChance;
+    const damage = hit ? RIFLE_DAMAGE : 0;
+
+    if (hit) {
+      targetUnit.hp = Math.max(0, targetUnit.hp - damage);
+    }
+
+    const result: ShotResult = {
+      shooterUnitId: enemy.id,
+      targetUnitId: targetUnit.id,
+      targetName: targetUnit.name,
+      hitChance,
+      roll,
+      hit,
+      damage,
+      killed: targetUnit.hp === 0,
+      targetHp: targetUnit.hp,
+    };
+
+    if (result.killed) {
+      this.removeUnit(targetUnit.id);
+    }
+
+    this.lastShotResult = result;
+    this.shotEvents.push({ shooterPosition: shooterPos, targetPosition: targetPos, hit: result.hit });
+    this.notify();
+
+    if (this.units.filter((u) => u.team === "player").length === 0) {
+      return "done";
+    }
+
+    return "continue";
+  }
+
+  private enemyMoveToBetterPosition(enemy: Unit, playerUnits: Unit[], visibleTargets: TargetPreview[]): boolean {
+    const nearestPlayer = [...playerUnits].sort((a, b) => {
+      return getManhattanDistance(enemy.position, a.position) - getManhattanDistance(enemy.position, b.position);
+    })[0];
+
+    if (nearestPlayer === undefined) {
+      return false;
+    }
+
+    if (visibleTargets.length > 0 && enemy.actionPoints >= SHOOT_ACTION_POINT_COST) {
+      return false;
+    }
+
+    const nextTile = getNeighbors(this.grid, enemy.position)
+      .filter((tile) => this.canMoveUnitTo(enemy, tile))
+      .sort((a, b) => {
+        const distA = getManhattanDistance(a, nearestPlayer.position);
+        const distB = getManhattanDistance(b, nearestPlayer.position);
+        if (distA !== distB) {
+          return distA - distB;
+        }
+        const tileA = getTile(this.grid, a);
+        const tileB = getTile(this.grid, b);
+        return (tileB?.cover ?? 0) - (tileA?.cover ?? 0);
+      })[0];
+
+    if (nextTile === undefined) {
+      return false;
+    }
+
+    this.moveUnit(enemy, { x: nextTile.x, y: nextTile.y }, true);
+    return true;
   }
 
   private moveUnit(unit: Unit, position: GridPosition, shouldNotify = true): boolean {
@@ -362,6 +652,9 @@ export class BattleState {
     unit.movementPoints -= movementCost;
     this.selectedTargetUnitId = null;
     this.refreshSelectedMovementCache();
+
+    this.triggerOverwatchShots(unit, path);
+
     this.phase = unit.movementPoints > 0 ? "moving" : "selecting";
 
     if (shouldNotify) {
@@ -371,23 +664,49 @@ export class BattleState {
     return true;
   }
 
-  private getEnemyStep(enemy: Unit): GridPosition | undefined {
-    const playerUnits = this.units.filter((unit) => unit.team === "player");
-    const nearestPlayer = [...playerUnits].sort((a, b) => {
-      return getManhattanDistance(enemy.position, a.position) - getManhattanDistance(enemy.position, b.position);
-    })[0];
+  private triggerOverwatchShots(movingUnit: Unit, path: GridPosition[]): void {
+    const overwatchUnits = this.units.filter(
+      (u) => u.team !== movingUnit.team && u.isOverwatch && u.actionPoints >= SHOOT_ACTION_POINT_COST
+    );
 
-    if (nearestPlayer === undefined) {
-      return undefined;
+    for (const overwatchUnit of overwatchUnits) {
+      let triggered = false;
+      for (const step of path) {
+        if (triggered) {
+          break;
+        }
+
+        const sightline = calculateSightline(this.grid, overwatchUnit.position, {
+          id: "temp",
+          name: "temp",
+          team: movingUnit.team,
+          hp: 1,
+          maxHp: 1,
+          actionPoints: 0,
+          maxActionPoints: 0,
+          movementPoints: 0,
+          maxMovementPoints: 0,
+          position: step,
+          isOverwatch: false,
+        });
+
+        if (sightline.visible) {
+          const coverDirection = getCoverDirectionTowardAttacker(overwatchUnit.position, movingUnit.position);
+          const targetTile = getTile(this.grid, movingUnit.position);
+          const cover = targetTile?.coverSides[coverDirection] ?? 0;
+          const flanked = cover === 0;
+          const range = getManhattanDistance(overwatchUnit.position, movingUnit.position);
+          const rangeBand = getRangeBand(range);
+          const hitChance = Math.max(10, calculateHitChance(cover, flanked, rangeBand) - OVERWATCH_HIT_PENALTY);
+
+          overwatchUnit.actionPoints -= SHOOT_ACTION_POINT_COST;
+          overwatchUnit.isOverwatch = false;
+
+          this.executeShot(overwatchUnit, movingUnit, hitChance);
+          triggered = true;
+        }
+      }
     }
-
-    const nextTile = getNeighbors(this.grid, enemy.position)
-      .filter((tile) => this.canMoveUnitTo(enemy, tile))
-      .sort((a, b) => {
-        return getManhattanDistance(a, nearestPlayer.position) - getManhattanDistance(b, nearestPlayer.position);
-      })[0];
-
-    return nextTile === undefined ? undefined : { x: nextTile.x, y: nextTile.y };
   }
 
   private getPathForUnit(unit: Unit, destination: GridPosition): GridPosition[] {

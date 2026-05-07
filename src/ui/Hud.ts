@@ -1,4 +1,14 @@
+import { shadowrunTheme, spaceTheme, xcomTheme } from "../data/BattleMap";
 import type { BattleState } from "../game/BattleState";
+import { setTheme } from "../game/Units";
+
+type ThemeKey = "XCOM" | "Shadowrun" | "Space";
+const themes: Record<ThemeKey, { theme: typeof xcomTheme; name: string }> = {
+  XCOM: { theme: xcomTheme, name: "XCOM" },
+  Shadowrun: { theme: shadowrunTheme, name: "Shadowrun" },
+  Space: { theme: spaceTheme, name: "Space" },
+};
+let currentThemeKey: ThemeKey = "Space";
 
 export class Hud {
   private readonly root: HTMLDivElement;
@@ -11,7 +21,11 @@ export class Hud {
   private readonly shotIntel: HTMLDivElement;
   private readonly ordersLabel: HTMLDivElement;
   private readonly fireButton: HTMLButtonElement;
+  private readonly overwatchButton: HTMLButtonElement;
   private readonly endTurnButton: HTMLButtonElement;
+  private readonly restartButton: HTMLButtonElement;
+  private readonly missionResultLabel: HTMLDivElement;
+  private readonly themeToggle: HTMLButtonElement;
 
   constructor(private readonly battleState: BattleState) {
     this.root = document.createElement("div");
@@ -47,12 +61,36 @@ export class Hud {
     this.fireButton.textContent = "Fire";
     this.fireButton.addEventListener("click", () => this.battleState.fireAtSelectedTarget());
 
+    this.overwatchButton = document.createElement("button");
+    this.overwatchButton.type = "button";
+    this.overwatchButton.className = "hud__overwatch";
+    this.overwatchButton.textContent = "Overwatch";
+    this.overwatchButton.addEventListener("click", () => this.battleState.enterOverwatch());
+
     this.endTurnButton = document.createElement("button");
     this.endTurnButton.type = "button";
     this.endTurnButton.textContent = "End Turn";
     this.endTurnButton.addEventListener("click", () => this.battleState.endTurn());
 
+    this.restartButton = document.createElement("button");
+    this.restartButton.type = "button";
+    this.restartButton.className = "hud__restart";
+    this.restartButton.textContent = "Restart";
+    this.restartButton.addEventListener("click", () => this.battleState.restartMission());
+    this.restartButton.style.display = "none";
+
+    this.missionResultLabel = document.createElement("div");
+    this.missionResultLabel.className = "hud__mission-result";
+    this.missionResultLabel.style.display = "none";
+
+    this.themeToggle = document.createElement("button");
+    this.themeToggle.type = "button";
+    this.themeToggle.className = "hud__theme";
+    this.themeToggle.textContent = "Theme: Shadowrun";
+    this.themeToggle.addEventListener("click", () => this.toggleTheme());
+
     this.root.append(
+      this.missionResultLabel,
       this.teamLabel,
       this.selectedLabel,
       this.roster,
@@ -62,7 +100,10 @@ export class Hud {
       this.shotIntel,
       this.ordersLabel,
       this.fireButton,
-      this.endTurnButton
+      this.overwatchButton,
+      this.endTurnButton,
+      this.restartButton,
+      this.themeToggle
     );
     document.body.appendChild(this.root);
 
@@ -72,6 +113,7 @@ export class Hud {
 
   private render(): void {
     const selectedUnit = this.battleState.selectedUnit;
+    this.renderMissionResult();
     this.teamLabel.textContent = `Team: ${capitalize(this.battleState.currentTeam)}`;
     this.selectedLabel.textContent =
       selectedUnit === undefined
@@ -80,16 +122,54 @@ export class Hud {
     this.ordersLabel.textContent =
       selectedUnit === undefined
         ? "Select a soldier to plot movement."
-        : this.battleState.aimPreview === null
-          ? "Hover tiles to preview route. Click a highlighted tile to move, or click a visible enemy to aim."
-          : "Fire to resolve the shot, or pick another tile or soldier to cancel aim.";
+        : selectedUnit.isOverwatch
+          ? "Unit is on overwatch. Will fire at moving enemies."
+          : this.battleState.aimPreview === null
+            ? "Hover tiles to preview route. Click a highlighted tile to move, or click a visible enemy to aim."
+            : "Fire to resolve the shot, or pick another tile or soldier to cancel aim.";
     this.fireButton.disabled =
-      selectedUnit === undefined || selectedUnit.actionPoints <= 0 || this.battleState.aimPreview === null;
+      selectedUnit === undefined || selectedUnit.actionPoints <= 0 || this.battleState.aimPreview === null || selectedUnit.isOverwatch;
+    this.overwatchButton.disabled =
+      selectedUnit === undefined || selectedUnit.actionPoints <= 0 || selectedUnit.isOverwatch || this.battleState.currentTeam !== "player";
     this.renderTileIntel();
     this.renderSightIntel();
     this.renderAimIntel();
     this.renderShotIntel();
     this.renderRoster();
+  }
+
+  private toggleTheme(): void {
+    const keys: ThemeKey[] = ["XCOM", "Shadowrun", "Space"];
+    const currentIndex = keys.indexOf(currentThemeKey);
+    const nextIndex = (currentIndex + 1) % keys.length;
+    currentThemeKey = keys[nextIndex];
+    setTheme(themes[currentThemeKey].theme);
+    this.themeToggle.textContent = `Theme: ${themes[currentThemeKey].name}`;
+    this.battleState.restartMission();
+  }
+
+  private renderMissionResult(): void {
+    const result = this.battleState.missionResult;
+    if (result === "in_progress") {
+      this.missionResultLabel.style.display = "none";
+      this.restartButton.style.display = "none";
+      this.endTurnButton.style.display = "";
+      return;
+    }
+
+    this.missionResultLabel.style.display = "";
+    this.restartButton.style.display = "";
+    this.endTurnButton.style.display = "none";
+
+    const message = result === "victory"
+      ? "MISSION COMPLETE - All hostiles eliminated!"
+      : "MISSION FAILED - Squad wiped out!";
+    this.missionResultLabel.textContent = message;
+    this.missionResultLabel.style.color = result === "victory" ? "#4ade80" : "#f87171";
+    this.missionResultLabel.style.fontSize = "1.2em";
+    this.missionResultLabel.style.fontWeight = "bold";
+    this.missionResultLabel.style.textAlign = "center";
+    this.missionResultLabel.style.padding = "8px";
   }
 
   private renderTileIntel(): void {
@@ -173,7 +253,8 @@ export class Hud {
 
         const stats = document.createElement("span");
         stats.className = "hud__unit-stats";
-        stats.textContent = `HP ${unit.hp}/${unit.maxHp}  MP ${unit.movementPoints}/${unit.maxMovementPoints}`;
+        const overwatchTag = unit.isOverwatch ? " [OW]" : "";
+        stats.textContent = `HP ${unit.hp}/${unit.maxHp}  MP ${unit.movementPoints}/${unit.maxMovementPoints}${overwatchTag}`;
 
         button.append(name, stats);
         this.roster.appendChild(button);

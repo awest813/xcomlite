@@ -1,10 +1,14 @@
 import { ArcRotateCamera, Engine, Scene, Vector3 } from "@babylonjs/core";
+import { spaceTheme } from "./data/BattleMap";
 import { BattleState } from "./game/BattleState";
 import { installDebugHooks } from "./game/DebugHooks";
+import { setTheme } from "./game/Units";
 import { TurnController } from "./game/TurnController";
 import { TacticalScene } from "./render/TacticalScene";
 import { Hud } from "./ui/Hud";
 import "./style.css";
+
+setTheme(spaceTheme);
 
 class App {
   constructor() {

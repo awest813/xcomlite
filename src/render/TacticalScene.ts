@@ -10,8 +10,9 @@ import {
   Scene,
   StandardMaterial,
   Vector3,
+  VertexData,
 } from "@babylonjs/core";
-import { GRID_HEIGHT, GRID_WIDTH } from "../game/Grid";
+import { GRID_HEIGHT, GRID_WIDTH, getTile } from "../game/Grid";
 import type { BattleState } from "../game/BattleState";
 import type { GridPosition, Tile } from "../game/types";
 
@@ -38,9 +39,13 @@ export class TacticalScene {
   private readonly unitMeshes = new Map<string, Mesh>();
   private readonly unitHealthBars = new Map<string, Mesh>();
   private readonly unitSelectionRings = new Map<string, Mesh>();
+  private readonly unitOverwatchMarkers = new Map<string, Mesh>();
   private readonly enemySightMarkers = new Map<string, Mesh>();
   private readonly pathMarkerMeshes: Mesh[] = [];
   private readonly sightlineMeshes: LinesMesh[] = [];
+  private readonly shotLineMeshes: LinesMesh[] = [];
+  private readonly impactFlashMeshes: Mesh[] = [];
+  private shotEffectTimer = 0;
   private readonly floorTileMaterial: StandardMaterial;
   private readonly roadTileMaterial: StandardMaterial;
   private readonly roughTileMaterial: StandardMaterial;
@@ -63,6 +68,11 @@ export class TacticalScene {
   private readonly flankedEnemyMarkerMaterial: StandardMaterial;
   private readonly aimedEnemyMarkerMaterial: StandardMaterial;
   private readonly hiddenEnemyMarkerMaterial: StandardMaterial;
+  private readonly shotLineMaterial: StandardMaterial;
+  private readonly impactHitMaterial: StandardMaterial;
+  private readonly impactMissMaterial: StandardMaterial;
+  private readonly overwatchMarkerMaterial: StandardMaterial;
+  private readonly extractZoneMaterial: StandardMaterial;
   private hoveredPath: GridPosition[] = [];
   private readonly unitAnimations = new Map<string, UnitAnimation>();
 
@@ -95,6 +105,16 @@ export class TacticalScene {
     this.flankedEnemyMarkerMaterial = this.createMaterial("flanked-enemy-marker-material", new Color3(1, 0.18, 0.12));
     this.aimedEnemyMarkerMaterial = this.createMaterial("aimed-enemy-marker-material", new Color3(1, 0.93, 0.3));
     this.hiddenEnemyMarkerMaterial = this.createMaterial("hidden-enemy-marker-material", new Color3(0.31, 0.33, 0.34));
+    this.shotLineMaterial = this.createMaterial("shot-line-material", new Color3(1, 0.85, 0.2));
+    this.shotLineMaterial.emissiveColor = new Color3(0.4, 0.3, 0.05);
+    this.impactHitMaterial = this.createMaterial("impact-hit-material", new Color3(1, 0.2, 0.1));
+    this.impactHitMaterial.emissiveColor = new Color3(0.5, 0.05, 0.02);
+    this.impactMissMaterial = this.createMaterial("impact-miss-material", new Color3(0.5, 0.5, 0.5));
+    this.impactMissMaterial.emissiveColor = new Color3(0.15, 0.15, 0.15);
+    this.overwatchMarkerMaterial = this.createMaterial("overwatch-marker-material", new Color3(0.2, 0.8, 0.2));
+    this.overwatchMarkerMaterial.emissiveColor = new Color3(0.08, 0.3, 0.08);
+    this.extractZoneMaterial = this.createMaterial("extract-zone-material", new Color3(0.2, 0.6, 0.9));
+    this.extractZoneMaterial.emissiveColor = new Color3(0.1, 0.25, 0.4);
     this.selectionRingMaterial.emissiveColor = new Color3(0.1, 0.28, 0.42);
     this.pathMarkerMaterial.emissiveColor = new Color3(0.18, 0.13, 0.01);
     this.visibleEnemyMarkerMaterial.emissiveColor = new Color3(0.22, 0.1, 0.01);
@@ -106,6 +126,7 @@ export class TacticalScene {
     this.renderGrid();
     this.renderUnits();
     this.setupPicking(canvas);
+    this.setupKeyboard(canvas);
     this.battleState.subscribe(() => this.syncScene());
     this.syncScene();
   }
@@ -125,7 +146,39 @@ export class TacticalScene {
   private setupLighting(): void {
     const light = new HemisphericLight("tactical-light", new Vector3(0.4, 1, 0.3), this.scene);
     light.intensity = 0.85;
-    this.scene.clearColor.set(0.04, 0.05, 0.055, 1);
+    this.scene.clearColor.set(0.01, 0.01, 0.03, 1);
+    this.createStarfield();
+  }
+
+  private createStarfield(): void {
+    const starCount = 200;
+    const positions: number[] = [];
+    const colors: number[] = [];
+
+    for (let i = 0; i < starCount; i++) {
+      const x = (Math.random() - 0.5) * 60;
+      const y = (Math.random() - 0.5) * 60 + 20;
+      const z = (Math.random() - 0.5) * 60;
+      positions.push(x, y, z);
+
+      const brightness = 0.3 + Math.random() * 0.7;
+      colors.push(brightness, brightness, brightness * 1.1, 1);
+    }
+
+    const starMesh = new Mesh("stars", this.scene);
+    const vertexData = new VertexData();
+    vertexData.positions = positions;
+    vertexData.colors = colors;
+    vertexData.indices = Array.from({ length: starCount }, (_, i) => i);
+    vertexData.applyToMesh(starMesh);
+
+    const starMaterial = new StandardMaterial("star-mat", this.scene);
+    starMaterial.emissiveColor = new Color3(1, 1, 1);
+    starMaterial.disableLighting = true;
+    starMaterial.pointsCloud = true;
+    starMaterial.pointSize = 2;
+    starMesh.material = starMaterial;
+    starMesh.isPickable = false;
   }
 
   private renderGrid(): void {
@@ -155,6 +208,20 @@ export class TacticalScene {
         this.renderCover(tile);
       }
     });
+
+    if (this.battleState.extractZone !== null) {
+      const extractTile = getTile(this.battleState.grid, this.battleState.extractZone);
+      if (extractTile !== undefined) {
+        const extractMesh = MeshBuilder.CreateBox(
+          "extract-zone",
+          { width: 0.94, height: 0.08, depth: 0.94 },
+          this.scene
+        );
+        extractMesh.position = this.toWorldPosition(extractTile, 0.06);
+        extractMesh.material = this.extractZoneMaterial;
+        extractMesh.isPickable = false;
+      }
+    }
   }
 
   private renderUnits(): void {
@@ -218,6 +285,18 @@ export class TacticalScene {
       healthFill.material = this.healthFillMaterial;
       healthFill.isPickable = false;
       this.unitHealthBars.set(unit.id, healthFill);
+
+      const overwatchMarker = MeshBuilder.CreateCylinder(
+        `${unit.id}-overwatch`,
+        { diameterTop: 0.1, diameterBottom: 0.6, height: 0.5, tessellation: 8 },
+        this.scene
+      );
+      overwatchMarker.parent = mesh;
+      overwatchMarker.position.y = 0.65;
+      overwatchMarker.material = this.overwatchMarkerMaterial;
+      overwatchMarker.isPickable = false;
+      overwatchMarker.isVisible = false;
+      this.unitOverwatchMarkers.set(unit.id, overwatchMarker);
 
       if (unit.team === "enemy") {
         const sightMarker = MeshBuilder.CreateTorus(
@@ -304,6 +383,48 @@ export class TacticalScene {
     });
   }
 
+  private setupKeyboard(_canvas: HTMLCanvasElement): void {
+    window.addEventListener("keydown", (e) => {
+      if (this.battleState.missionResult !== "in_progress") {
+        if (e.key === "r" || e.key === "R") {
+          this.battleState.restartMission();
+        }
+        return;
+      }
+
+      switch (e.key.toLowerCase()) {
+        case "e":
+          this.battleState.endTurn();
+          break;
+        case "f":
+          this.battleState.fireAtSelectedTarget();
+          break;
+        case "o":
+          this.battleState.enterOverwatch();
+          break;
+        case "1":
+          this.selectPlayerUnitByIndex(0);
+          break;
+        case "2":
+          this.selectPlayerUnitByIndex(1);
+          break;
+        case "3":
+          this.selectPlayerUnitByIndex(2);
+          break;
+        case "r":
+          this.battleState.restartMission();
+          break;
+      }
+    });
+  }
+
+  private selectPlayerUnitByIndex(index: number): void {
+    const playerUnits = this.battleState.units.filter((u) => u.team === "player");
+    if (index < playerUnits.length) {
+      this.battleState.selectUnit(playerUnits[index].id);
+    }
+  }
+
   private handlePickedMesh(mesh: AbstractMesh | null | undefined): void {
       const metadata = mesh?.metadata as MeshMetadata | undefined;
       if (metadata?.kind === "unit") {
@@ -327,6 +448,7 @@ export class TacticalScene {
   update(deltaMs: number): void {
     this.startQueuedMovementAnimations();
     this.updateMovementAnimations(deltaMs);
+    this.updateShotEffects(deltaMs);
   }
 
   private updateHoveredPath(mesh: AbstractMesh | null | undefined): void {
@@ -352,6 +474,7 @@ export class TacticalScene {
     this.syncUnitOverlays();
     this.syncTileHighlights();
     this.syncSightlinePreview();
+    this.renderShotEffects();
   }
 
   private removeMissingUnitMeshes(): void {
@@ -367,6 +490,7 @@ export class TacticalScene {
       this.unitMeshes.delete(unitId);
       this.unitHealthBars.delete(unitId);
       this.unitSelectionRings.delete(unitId);
+      this.unitOverwatchMarkers.delete(unitId);
       this.enemySightMarkers.delete(unitId);
       this.unitAnimations.delete(unitId);
     });
@@ -476,6 +600,11 @@ export class TacticalScene {
         healthFill.scaling.x = Math.max(0.04, hpRatio);
         healthFill.position.x = -0.34 + 0.34 * hpRatio;
       }
+
+      const overwatchMarker = this.unitOverwatchMarkers.get(unit.id);
+      if (overwatchMarker !== undefined) {
+        overwatchMarker.isVisible = unit.isOverwatch;
+      }
     });
 
     this.syncEnemySightMarkers();
@@ -559,6 +688,72 @@ export class TacticalScene {
       mesh.isPickable = false;
       this.sightlineMeshes.push(mesh);
     });
+  }
+
+  private renderShotEffects(): void {
+    const shotEvents = this.battleState.drainShotEvents();
+    if (shotEvents.length === 0) {
+      return;
+    }
+
+    this.shotLineMeshes.forEach((mesh) => mesh.dispose());
+    this.shotLineMeshes.length = 0;
+    this.impactFlashMeshes.forEach((mesh) => mesh.dispose());
+    this.impactFlashMeshes.length = 0;
+
+    for (const shot of shotEvents) {
+      const shooterWorld = this.toWorldPosition(shot.shooterPosition, 0.5);
+      const targetWorld = this.toWorldPosition(shot.targetPosition, 0.5);
+
+      const shotLine = MeshBuilder.CreateLines(
+        `shot-line-${shot.shooterPosition.x}-${shot.shooterPosition.y}`,
+        { points: [shooterWorld, targetWorld], updatable: false },
+        this.scene
+      );
+      shotLine.color = new Color3(1, 0.9, 0.3);
+      shotLine.alpha = 1.0;
+      shotLine.isPickable = false;
+      this.shotLineMeshes.push(shotLine);
+
+      const impactMesh = MeshBuilder.CreateSphere(
+        `impact-${shot.targetPosition.x}-${shot.targetPosition.y}`,
+        { diameter: shot.hit ? 0.5 : 0.3, segments: 8 },
+        this.scene
+      );
+      impactMesh.position = targetWorld;
+      impactMesh.material = shot.hit ? this.impactHitMaterial : this.impactMissMaterial;
+      impactMesh.isPickable = false;
+      this.impactFlashMeshes.push(impactMesh);
+    }
+
+    this.shotEffectTimer = 600;
+  }
+
+  private updateShotEffects(deltaMs: number): void {
+    if (this.shotEffectTimer <= 0) {
+      return;
+    }
+
+    this.shotEffectTimer -= deltaMs;
+    const alpha = Math.max(0, this.shotEffectTimer / 600);
+
+    this.shotLineMeshes.forEach((mesh) => {
+      mesh.alpha = alpha;
+    });
+
+    this.impactFlashMeshes.forEach((mesh) => {
+      mesh.scaling = new Vector3(1 + (1 - alpha) * 2, 1 + (1 - alpha) * 2, 1 + (1 - alpha) * 2);
+      if (mesh.material instanceof StandardMaterial) {
+        mesh.material.alpha = alpha;
+      }
+    });
+
+    if (this.shotEffectTimer <= 0) {
+      this.shotLineMeshes.forEach((mesh) => mesh.dispose());
+      this.shotLineMeshes.length = 0;
+      this.impactFlashMeshes.forEach((mesh) => mesh.dispose());
+      this.impactFlashMeshes.length = 0;
+    }
   }
 
   private arePathsEqual(currentPath: GridPosition[], nextPath: GridPosition[]): boolean {

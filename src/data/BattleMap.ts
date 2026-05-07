@@ -9,6 +9,38 @@ export interface AuthoredTile extends GridPosition {
   blocksSight?: boolean;
 }
 
+export interface ThemeConfig {
+  name: string;
+  playerUnitNames: string[];
+  enemyUnitNames: string[];
+  mapName: string;
+  missionBriefing: string;
+}
+
+export const xcomTheme: ThemeConfig = {
+  name: "XCOM",
+  playerUnitNames: ["Ranger", "Specialist", "Grenadier"],
+  enemyUnitNames: ["Trooper", "Scout", "Guard"],
+  mapName: "Tactical Exercise",
+  missionBriefing: "Eliminate all hostiles.",
+};
+
+export const shadowrunTheme: ThemeConfig = {
+  name: "Shadowrun",
+  playerUnitNames: ["Street Samurai", "Decker", "Shaman"],
+  enemyUnitNames: ["Corp Sec", "Lone Star", "Triad"],
+  mapName: "Hong Kong Sprawl",
+  missionBriefing: "Jack into the matrix or burn it down.",
+};
+
+export const spaceTheme: ThemeConfig = {
+  name: "Space",
+  playerUnitNames: ["Marine", "Tech", "Sniper"],
+  enemyUnitNames: ["Alien", "Drone", "Hive"],
+  mapName: "Derelict Ship",
+  missionBriefing: "Clear the xenomorphs.",
+};
+
 export const battleMapTiles: AuthoredTile[] = [
   { x: 0, y: 0, terrain: "rough", moveCost: 2 },
   { x: 1, y: 0, terrain: "rough", moveCost: 2 },

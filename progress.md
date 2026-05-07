@@ -170,3 +170,80 @@ Guiding rule: build the tactical combat loop first. Delay campaign, base managem
 
 - Implement Phase 8 enemy combat turn with the same basic rifle shot before adding overwatch.
 - Add a small shot line/impact flash using Babylon primitives so firing reads visually, while keeping rules unchanged.
+
+## Phase 8 Enemy Combat Turn Progress
+
+- Upgraded enemy AI from movement-only to XCOM-like priorities: shoot visible flanked targets first, then visible targets in cover, then move to better position.
+- Enemies now consume AP to shoot at player units with the same rifle profile, hit chance calculation, and damage as player shots.
+- Added shot line and impact flash visual effects: yellow shot lines from shooter to target, red hit spheres or gray miss spheres that fade over 600ms.
+- Shot events are drained from BattleState and rendered by TacticalScene with animated fade-out.
+- `npm run build` passes after enemy combat turn changes.
+- Browser verification passed: enemy units shoot at visible player units, deal damage, and remove killed units from the board.
+
+## Phase 9 Overwatch Progress
+
+- Added `isOverwatch` state to units and `enterOverwatch()` action to BattleState.
+- Units can spend 1 AP to enter overwatch; overwatch units fire at the first enemy they see moving through their sight line.
+- Overwatch shots suffer a -20% hit chance penalty and consume the overwatch state.
+- Overwatch is cleared for the acting team when their turn ends.
+- Added overwatch button to HUD and green cone marker on overwatch units in the scene.
+- Added keyboard shortcut: `O` for overwatch.
+- `npm run build` passes after overwatch changes.
+
+## Phase 10 Mission Objective Progress
+
+- Added `MissionResult` type (`in_progress`, `victory`, `defeat`) and `MissionType` (`eliminate`, `extract`).
+- BattleState tracks mission result and checks for win/loss after each turn.
+- Victory: eliminate all enemies (or reach extract zone in extract mode).
+- Defeat: all player units killed.
+- Added extract zone visual marker (blue tile) at position 9,9.
+- Added restart button and `restartMission()` method to reset the battle state.
+- HUD displays victory/defeat message with colored text when mission ends.
+- `npm run build` passes after mission objective changes.
+
+## Phase 11 Tactical Polish Progress
+
+- Added keyboard shortcuts: `E` for end turn, `F` for fire, `O` for overwatch, `1/2/3` for unit selection, `R` for restart.
+- Added theme toggle button to switch between XCOM and Shadowrun Hong Kong themes.
+- Theme system changes unit names, enemy types, and mission briefing.
+- Default theme is Shadowrun Hong Kong (Street Samurai, Decker, Shaman vs Corp Sec, Lone Star, Triad).
+- `npm run build` passes after tactical polish changes.
+
+## XCOM/Shadowrun Hong Kong Framework Summary
+
+The tactical combat framework now supports:
+
+### Core Gameplay
+- Grid-based movement with BFS pathfinding and movement costs
+- Directional cover system (half/full/flanked)
+- Line of sight with Bresenham line algorithm
+- Aim preview with hit chance calculation
+- Basic shooting with deterministic rolls
+- Enemy AI with shoot/move priorities
+- Overwatch reaction fire
+- Mission objectives (eliminate/extract) with win/loss states
+- Restart functionality
+
+### Visual Features
+- Terrain rendering (floor, road, rough, obstacle)
+- Cover blocks on tile edges
+- Unit placeholders with team colors, heads, selection rings, HP bars
+- Movement path preview with step pips
+- Sightline visualization
+- Enemy visibility rings (visible/flanked/aimed/hidden)
+- Shot line and impact flash effects
+- Overwatch cone markers
+- Extract zone marker
+
+### UI Features
+- Compact HUD with team label, selected unit stats, roster, tile intel, sight/aim/shot feedback
+- Fire, Overwatch, End Turn, Restart buttons
+- Theme toggle (XCOM / Shadowrun Hong Kong)
+- Keyboard shortcuts for all major actions
+
+### Architecture
+- Clean separation: game state (BattleState), rendering (TacticalScene), UI (Hud), data (BattleMap, Units)
+- Event-driven updates via subscriber pattern
+- Debug hooks for browser verification
+- TypeScript throughout with Babylon.js for 3D rendering
+- Vite build system
