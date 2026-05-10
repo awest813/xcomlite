@@ -25,7 +25,7 @@ export interface MapLayout {
   name: string;
   missionType: MissionType;
   objective: string;
-  extractZone?: GridPosition | null;
+  extractZone?: GridPosition;
   width: number;
   height: number;
   playerStarts: GridPosition[];
@@ -224,7 +224,6 @@ export const mapLayouts: MapLayout[] = [
     name: "Derelict Station 7G",
     missionType: "eliminate",
     objective: "Eliminate all active Sovereign remnants.",
-    extractZone: null,
     width: 10,
     height: 10,
     playerStarts: [{ x: 1, y: 1, elevation: 0 }, { x: 2, y: 2, elevation: 0 }, { x: 1, y: 3, elevation: 0 }],
@@ -236,7 +235,6 @@ export const mapLayouts: MapLayout[] = [
     name: "Abandoned Outpost",
     missionType: "eliminate",
     objective: "Clear the outpost and keep the squad alive.",
-    extractZone: null,
     width: 10,
     height: 10,
     playerStarts: [{ x: 1, y: 4, elevation: 0 }, { x: 2, y: 5, elevation: 0 }, { x: 1, y: 6, elevation: 0 }],

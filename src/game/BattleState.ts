@@ -105,7 +105,7 @@ export class BattleState {
   constructor(layout: MapLayout) {
     this.mapLayout = layout;
     this.missionType = layout.missionType;
-    this.extractZone = layout.extractZone === undefined ? null : layout.extractZone;
+    this.extractZone = layout.extractZone ?? null;
     this.grid = buildGrid(layout);
     this.units = [...createPlayerUnits(layout.playerStarts), ...createEnemyUnits(layout.enemyStarts)];
     this.units.forEach((unit) => {
@@ -868,7 +868,7 @@ export class BattleState {
     this.currentTeam = "player";
     this.phase = "selecting";
     this.missionType = this.mapLayout.missionType;
-    this.extractZone = this.mapLayout.extractZone === undefined ? null : this.mapLayout.extractZone;
+    this.extractZone = this.mapLayout.extractZone ?? null;
     this.missionResult = "in_progress";
     this.selectedMovementCache = null;
     this.movementEvents.length = 0;
