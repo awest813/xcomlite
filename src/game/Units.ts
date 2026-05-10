@@ -81,7 +81,7 @@ function createUnit(id: string, name: string, team: Unit["team"], position: Grid
     isOverwatch: false,
     isSuppressed: false,
     isPanicked: false,
-    weapon: weapons[weaponType],
+    weapon: { ...weapons[weaponType] },
     abilities,
     inventory: buildConsumableInventory(id, abilities),
     statusEffects: [],
