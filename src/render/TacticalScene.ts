@@ -845,14 +845,13 @@ export class TacticalScene {
       const bodyMat = this.unitBodyMaterials.get(unit.id);
       if (bodyMat !== undefined) {
         const hpRatio = unit.maxHp === 0 ? 0 : unit.hp / unit.maxHp;
-        if (unit.isSuppressed) {
-          bodyMat.emissiveColor = new Color3(0.22, 0.1, 0.0);
-        } else if (hpRatio < 0.34) {
-          bodyMat.emissiveColor = new Color3(0.26, 0.05, 0.05);
+        const suppressedTint = unit.isSuppressed ? new Color3(0.16, 0.06, 0) : Color3.Black();
+        if (hpRatio < 0.34) {
+          bodyMat.emissiveColor = new Color3(0.26 + suppressedTint.r, 0.05 + suppressedTint.g, 0.05);
         } else if (hpRatio < 0.55) {
-          bodyMat.emissiveColor = new Color3(0.14, 0.07, 0.03);
+          bodyMat.emissiveColor = new Color3(0.14 + suppressedTint.r, 0.07 + suppressedTint.g, 0.03);
         } else {
-          bodyMat.emissiveColor = Color3.Black();
+          bodyMat.emissiveColor = suppressedTint.clone();
         }
       }
 

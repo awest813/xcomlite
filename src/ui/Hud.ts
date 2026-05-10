@@ -668,15 +668,21 @@ export class Hud {
 
     const turns = this.battleState.turnNumber;
     const survivors = this.battleState.units.filter((u) => u.team === "player");
-    const totalKills = survivors.reduce((sum, u) => sum + u.kills, 0);
+    const totalKills = this.battleState.units
+      .filter((u) => u.team === "player")
+      .reduce((sum, u) => sum + u.kills, 0);
     const killerLines = survivors
       .filter((u) => u.kills > 0)
       .map((u) => `${u.name}: ${u.kills}K`)
       .join(" · ");
 
+    const survivorLabel = result === "victory"
+      ? `Survivors: ${survivors.length}`
+      : survivors.length === 0 ? "No survivors" : `Remaining: ${survivors.length}`;
+
     const scoreLines = [
       headline,
-      `Turns: ${turns} · Kills: ${totalKills} · Survivors: ${survivors.length}`,
+      `Turns: ${turns} · Kills: ${totalKills} · ${survivorLabel}`,
       killerLines || "No confirmed kills.",
     ].join("  |  ");
 

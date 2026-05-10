@@ -254,3 +254,15 @@ The tactical combat framework now supports:
 - Converted Void Rift into an extract scenario with an authored extraction beacon while keeping the other maps as eliminate missions.
 - BattleState now initializes and restarts mission type/extract zone from the selected map and only grants eliminate victory for eliminate missions.
 - HUD and `render_game_to_text()` expose the active objective for player readability and browser verification.
+
+## Phase 13 Turn Counter, Kill Tracking, Enemy Grenades, Suppression Visual
+
+- Added `turnNumber` to `BattleState`: starts at 1, increments each time the player ends their turn, resets to 1 on restart.
+- HUD turn strip now displays the current turn number (e.g. "Turn 3 — Your move, Commander").
+- Added `kills` field to `Unit` (initialized to 0): incremented in `executeShot` whenever `killed` is true, and for grenade kills in the new enemy grenade AI.
+- Kill count shown in the operator stats panel ("Kills" row), squad roster unit stats line, and on the 3D unit nameplate role line (e.g. "Assault · Heavy Cannon · 2K").
+- Mission end score banner now includes turns taken, total kills, per-soldier kill breakdown, and a survivor count (or "No survivors" on defeat).
+- Enemy grenade AI: when an enemy has a grenade ability with remaining uses and 2 or more player units are visible within the grenade radius of a single anchor tile, the enemy throws the grenade instead of shooting. Grenade kills are credited to the throwing enemy.
+- Suppression visual: suppressed units display an orange torus ring at their base AND an orange emissive body tint that composites with the low-HP red tint (both effects can show simultaneously).
+- `render_game_to_text()` debug hook now includes `turnNumber` and per-unit `kills`.
+- `npm run build` passes after Phase 13 changes.
