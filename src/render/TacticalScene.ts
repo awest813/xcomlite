@@ -12,9 +12,10 @@ import {
   Vector3,
   VertexData,
 } from "@babylonjs/core";
+import { AdvancedDynamicTexture, Control, Rectangle, TextBlock } from "@babylonjs/gui";
 import { GRID_HEIGHT, GRID_WIDTH, getTile } from "../game/Grid";
 import type { BattleState } from "../game/BattleState";
-import type { GridPosition, Tile } from "../game/types";
+import type { GridPosition, Tile, Unit } from "../game/types";
 
 
 type MeshMetadata =
@@ -27,6 +28,13 @@ const UNIT_MOVE_SPEED_TILES_PER_SECOND = 5;
 interface UnitAnimation {
   waypoints: Vector3[];
   waypointIndex: number;
+}
+
+interface UnitLabelHandles {
+  readonly adt: AdvancedDynamicTexture;
+  readonly rect: Rectangle;
+  readonly nameText: TextBlock;
+  readonly hpText: TextBlock;
 }
 
 export class TacticalScene {
@@ -72,6 +80,7 @@ export class TacticalScene {
   private readonly fogExploredMaterial: StandardMaterial;
   private hoveredPath: GridPosition[] = [];
   private readonly unitAnimations = new Map<string, UnitAnimation>();
+  private readonly unitLabels = new Map<string, UnitLabelHandles>();
 
   constructor(
     private readonly scene: Scene,
@@ -313,7 +322,53 @@ export class TacticalScene {
         sightMarker.isVisible = false;
         this.enemySightMarkers.set(unit.id, sightMarker);
       }
+
+      this.attachUnitNameplate(mesh, unit);
     });
+  }
+
+  private attachUnitNameplate(unitMesh: Mesh, unit: Unit): void {
+    const plane = MeshBuilder.CreatePlane(`${unit.id}-nameplate`, { width: 1.45, height: 0.44 }, this.scene);
+    plane.parent = unitMesh;
+    plane.position = new Vector3(0, 1.24, 0);
+    plane.billboardMode = Mesh.BILLBOARDMODE_ALL;
+    plane.isPickable = false;
+
+    const adt = AdvancedDynamicTexture.CreateForMesh(plane, 900, 280, false);
+
+    const rect = new Rectangle(`${unit.id}-label-frame`);
+    rect.width = "92%";
+    rect.height = "86%";
+    rect.cornerRadius = 14;
+    rect.thickness = 1;
+    rect.color = "rgba(140,200,240,0.45)";
+    rect.background = "rgba(6,10,14,0.88)";
+    adt.addControl(rect);
+
+    const nameText = new TextBlock(`${unit.id}-label-name`, "");
+    nameText.text = unit.name;
+    nameText.color = unit.team === "player" ? "#c5efff" : "#ffc9c0";
+    nameText.fontSize = 42;
+    nameText.fontWeight = "bold";
+    nameText.fontFamily = "Oxanium, Segoe UI, Arial, sans-serif";
+    nameText.resizeToFit = true;
+    nameText.textWrapping = true;
+    nameText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+    nameText.textVerticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+    nameText.paddingTop = "10px";
+    rect.addControl(nameText);
+
+    const hpText = new TextBlock(`${unit.id}-label-hp`, "");
+    hpText.text = `HP ${unit.hp}/${unit.maxHp}`;
+    hpText.color = "#9fb8b0";
+    hpText.fontSize = 30;
+    hpText.fontFamily = "IBM Plex Mono, Consolas, monospace";
+    hpText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+    hpText.textVerticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+    hpText.paddingBottom = "12px";
+    rect.addControl(hpText);
+
+    this.unitLabels.set(unit.id, { adt, rect, nameText, hpText });
   }
 
   private renderCover(tile: Tile): void {
@@ -517,6 +572,12 @@ export class TacticalScene {
         return;
       }
 
+      const label = this.unitLabels.get(unitId);
+      if (label !== undefined) {
+        label.adt.dispose();
+        this.unitLabels.delete(unitId);
+      }
+
       mesh.getChildMeshes().forEach((child) => child.dispose());
       mesh.dispose();
       this.unitMeshes.delete(unitId);
@@ -653,6 +714,39 @@ export class TacticalScene {
       const overwatchMarker = this.unitOverwatchMarkers.get(unit.id);
       if (overwatchMarker !== undefined) {
         overwatchMarker.isVisible = unit.isOverwatch;
+      }
+
+      const label = this.unitLabels.get(unit.id);
+      if (label !== undefined) {
+        label.nameText.text = unit.name;
+        label.hpText.text = `HP ${unit.hp}/${unit.maxHp}`;
+        const hpRatio = unit.maxHp === 0 ? 0 : unit.hp / unit.maxHp;
+        label.hpText.color =
+          hpRatio > 0.55 ? "#b8e8c8" : hpRatio > 0.28 ? "#f0d78c" : "#ffb0a0";
+
+        const isSelected = unit.id === this.battleState.selectedUnitId;
+        const isHovered = unit.id === this.battleState.hoveredUnitId;
+        const isAimTarget =
+          unit.team === "enemy" &&
+          unit.id === this.battleState.selectedTargetUnitId &&
+          this.battleState.phase === "aiming";
+        if (isAimTarget) {
+          label.rect.color = "rgba(255,235,120,0.95)";
+          label.rect.thickness = 2;
+          label.rect.background = "rgba(26,22,10,0.92)";
+        } else if (isSelected) {
+          label.rect.color = "rgba(255,214,120,0.95)";
+          label.rect.thickness = 2;
+          label.rect.background = "rgba(28,22,8,0.92)";
+        } else if (isHovered) {
+          label.rect.color = "rgba(190,235,255,0.85)";
+          label.rect.thickness = 2;
+          label.rect.background = "rgba(10,18,26,0.9)";
+        } else {
+          label.rect.color = "rgba(140,200,240,0.45)";
+          label.rect.thickness = 1;
+          label.rect.background = "rgba(6,10,14,0.88)";
+        }
       }
     });
 
@@ -836,6 +930,8 @@ export class TacticalScene {
 
   dispose(): void {
     this.tileMeshes.forEach((mesh) => mesh.dispose());
+    this.unitLabels.forEach((label) => label.adt.dispose());
+    this.unitLabels.clear();
     this.unitMeshes.forEach((mesh) => {
       mesh.getChildMeshes().forEach((child) => child.dispose());
       mesh.dispose();
