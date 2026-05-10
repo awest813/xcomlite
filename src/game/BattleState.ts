@@ -87,9 +87,9 @@ export class BattleState {
   lastExplosionResult: ExplosionResult | null = null;
   currentTeam: Team = "player";
   phase: BattlePhase = "selecting";
-  missionType: MissionType = "eliminate";
+  missionType: MissionType;
   missionResult: MissionResult = "in_progress";
-  extractZone: GridPosition | null = { x: 9, y: 9, elevation: 0 };
+  extractZone: GridPosition | null;
   grenadeTargetTile: GridPosition | null = null;
   selectedAbility: Ability | null = null;
   /** Consumed by HUD as a one-shot toast message. */
@@ -104,6 +104,8 @@ export class BattleState {
 
   constructor(layout: MapLayout) {
     this.mapLayout = layout;
+    this.missionType = layout.missionType;
+    this.extractZone = layout.extractZone === undefined ? null : layout.extractZone;
     this.grid = buildGrid(layout);
     this.units = [...createPlayerUnits(layout.playerStarts), ...createEnemyUnits(layout.enemyStarts)];
     this.units.forEach((unit) => {
@@ -820,7 +822,7 @@ export class BattleState {
     const playerUnits = this.units.filter((u) => u.team === "player");
     const enemyUnits = this.units.filter((u) => u.team === "enemy");
 
-    if (enemyUnits.length === 0) {
+    if (this.missionType === "eliminate" && enemyUnits.length === 0) {
       this.missionResult = "victory";
       return;
     }
@@ -865,6 +867,8 @@ export class BattleState {
     this.lastExplosionResult = null;
     this.currentTeam = "player";
     this.phase = "selecting";
+    this.missionType = this.mapLayout.missionType;
+    this.extractZone = this.mapLayout.extractZone === undefined ? null : this.mapLayout.extractZone;
     this.missionResult = "in_progress";
     this.selectedMovementCache = null;
     this.movementEvents.length = 0;

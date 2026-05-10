@@ -207,7 +207,9 @@ export class Hud {
 
     const theme = getTheme();
     this.operationTitle.textContent = theme.name;
-    this.mapSubtitle.textContent = this.battleState.mapLayout.name;
+    this.mapSubtitle.textContent = `${this.battleState.mapLayout.name} · ${objectiveLabel(
+      this.battleState.missionType
+    )}: ${this.battleState.mapLayout.objective}`;
     this.renderMissionResult();
     this.teamPill.textContent = capitalize(this.battleState.currentTeam);
     this.teamPill.dataset.team = this.battleState.currentTeam;
@@ -712,4 +714,8 @@ function phaseRibbonCopy(phase: BattlePhase): string {
     default:
       return "";
   }
+}
+
+function objectiveLabel(missionType: string): string {
+  return missionType === "extract" ? "Extract" : "Eliminate";
 }

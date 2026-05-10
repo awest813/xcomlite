@@ -247,3 +247,10 @@ The tactical combat framework now supports:
 - Debug hooks for browser verification
 - TypeScript throughout with Babylon.js for 3D rendering
 - Vite build system
+
+## Phase 12 Authored Objectives Progress
+
+- Added map-authored objective metadata so deployments can be either eliminate or extract missions.
+- Converted Void Rift into an extract scenario with an authored extraction beacon while keeping the other maps as eliminate missions.
+- BattleState now initializes and restarts mission type/extract zone from the selected map and only grants eliminate victory for eliminate missions.
+- HUD and `render_game_to_text()` expose the active objective for player readability and browser verification.

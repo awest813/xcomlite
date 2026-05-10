@@ -19,6 +19,10 @@ export function installDebugHooks(battleState: BattleState, scene: Scene, update
       coordinateSystem: "grid origin is top-left; x increases right; y increases down",
       currentTeam: battleState.currentTeam,
       phase: battleState.phase,
+      missionType: battleState.missionType,
+      missionResult: battleState.missionResult,
+      objective: battleState.mapLayout.objective,
+      extractZone: battleState.extractZone,
       selectedUnitId: battleState.selectedUnitId,
       selectedTargetUnitId: battleState.selectedTargetUnitId,
       hoveredTile:
