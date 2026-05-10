@@ -90,6 +90,7 @@ export class TacticalScene {
   private hoveredPath: GridPosition[] = [];
   private readonly unitAnimations = new Map<string, UnitAnimation>();
   private readonly unitLabels = new Map<string, UnitLabelHandles>();
+  private readonly unitBodyMaterials = new Map<string, StandardMaterial>();
 
   constructor(
     private readonly scene: Scene,
@@ -251,7 +252,10 @@ export class TacticalScene {
         this.scene
       );
       mesh.position = this.toWorldPosition(unit.position, baseY + 0.42);
-      mesh.material = unit.team === "player" ? this.playerMaterial : this.enemyMaterial;
+      const templateMat = unit.team === "player" ? this.playerMaterial : this.enemyMaterial;
+      const bodyMat = templateMat.clone(`${unit.id}-body-mat`);
+      mesh.material = bodyMat;
+      this.unitBodyMaterials.set(unit.id, bodyMat);
       mesh.metadata = { kind: "unit", unitId: unit.id } satisfies MeshMetadata;
       this.unitMeshes.set(unit.id, mesh);
 
@@ -268,7 +272,7 @@ export class TacticalScene {
       const head = MeshBuilder.CreateSphere(`${unit.id}-head`, { diameter: 0.36, segments: 12 }, this.scene);
       head.parent = mesh;
       head.position.y = 0.52;
-      head.material = unit.team === "player" ? this.playerMaterial : this.enemyMaterial;
+      head.material = bodyMat;
       head.isPickable = false;
 
       const selectionRing = MeshBuilder.CreateTorus(
@@ -478,6 +482,28 @@ export class TacticalScene {
         return;
       }
 
+      if (e.key === "Escape") {
+        this.battleState.cancelTacticalAction();
+        return;
+      }
+
+      if (e.key === "Tab") {
+        e.preventDefault();
+        if (this.battleState.currentTeam === "player") {
+          this.cycleSelectedPlayerUnit(e.shiftKey ? -1 : 1);
+        }
+        return;
+      }
+
+      switch (e.key) {
+        case "[":
+          this.camera.alpha -= 0.14;
+          break;
+        case "]":
+          this.camera.alpha += 0.14;
+          break;
+      }
+
       switch (e.key.toLowerCase()) {
         case "e":
           this.battleState.endTurn();
@@ -502,6 +528,22 @@ export class TacticalScene {
           break;
       }
     });
+  }
+
+  private cycleSelectedPlayerUnit(delta: number): void {
+    const players = this.battleState.units.filter((u) => u.team === "player");
+    if (players.length === 0) {
+      return;
+    }
+
+    let idx = players.findIndex((u) => u.id === this.battleState.selectedUnitId);
+    if (idx < 0) {
+      idx = delta >= 0 ? 0 : players.length - 1;
+    } else {
+      idx = (idx + delta + players.length) % players.length;
+    }
+
+    this.battleState.selectUnit(players[idx].id);
   }
 
   private selectPlayerUnitByIndex(index: number): void {
@@ -626,6 +668,9 @@ export class TacticalScene {
         this.unitLabels.delete(unitId);
       }
 
+      this.unitBodyMaterials.get(unitId)?.dispose();
+      this.unitBodyMaterials.delete(unitId);
+
       mesh.getChildMeshes().forEach((child) => child.dispose());
       mesh.dispose();
       this.unitMeshes.delete(unitId);
@@ -745,6 +790,18 @@ export class TacticalScene {
         const tile = this.battleState.grid.find((t) => t.x === unit.position.x && t.y === unit.position.y);
         const isHidden = unit.team === "enemy" && tile?.fogState !== "visible";
         mesh.isVisible = !isHidden;
+      }
+
+      const bodyMat = this.unitBodyMaterials.get(unit.id);
+      if (bodyMat !== undefined) {
+        const hpRatio = unit.maxHp === 0 ? 0 : unit.hp / unit.maxHp;
+        if (hpRatio < 0.34) {
+          bodyMat.emissiveColor = new Color3(0.26, 0.05, 0.05);
+        } else if (hpRatio < 0.55) {
+          bodyMat.emissiveColor = new Color3(0.14, 0.07, 0.03);
+        } else {
+          bodyMat.emissiveColor = Color3.Black();
+        }
       }
 
       const selectionRing = this.unitSelectionRings.get(unit.id);
@@ -985,6 +1042,8 @@ export class TacticalScene {
       mesh.getChildMeshes().forEach((child) => child.dispose());
       mesh.dispose();
     });
+    this.unitBodyMaterials.forEach((mat) => mat.dispose());
+    this.unitBodyMaterials.clear();
     this.tileMeshes.clear();
     this.unitMeshes.clear();
     this.unitHealthBars.clear();

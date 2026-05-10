@@ -165,6 +165,38 @@ export class BattleState {
     return true;
   }
 
+  /** Exit aim, grenade target selection, or ability target selection without spending AP. */
+  cancelTacticalAction(): void {
+    if (this.missionResult !== "in_progress" || this.currentTeam !== "player") {
+      return;
+    }
+
+    if (this.phase === "aiming") {
+      this.selectedTargetUnitId = null;
+      this.hoveredTilePosition = null;
+      this.hoveredUnitId = null;
+      this.restoreMovementPhaseAfterCancel();
+      return;
+    }
+
+    if (this.phase === "grenade_aiming" || this.phase === "ability_select") {
+      this.selectedAbility = null;
+      this.grenadeTargetTile = null;
+      this.selectedTargetUnitId = null;
+      this.hoveredTilePosition = null;
+      this.hoveredUnitId = null;
+      this.restoreMovementPhaseAfterCancel();
+    }
+  }
+
+  private restoreMovementPhaseAfterCancel(): void {
+    const unit = this.selectedUnit;
+    this.phase =
+      unit !== undefined && (unit.movementPoints > 0 || unit.actionPoints > 0) ? "moving" : "selecting";
+    this.refreshSelectedMovementCache();
+    this.notify();
+  }
+
   setHoveredUnit(unitId: string | null): void {
     if (this.hoveredUnitId === unitId) {
       return;
