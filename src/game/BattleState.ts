@@ -1402,35 +1402,35 @@ export class BattleState {
     for (const unit of playerUnits) {
       const sightRadius = unit.unitClass === "sniper" ? 6 : 5;
       for (const tile of this.grid) {
-        if (tile.fogState === "hidden") {
-          const distance = getManhattanDistance(unit.position, tile);
-          if (distance <= sightRadius) {
-            const sightline = calculateSightline(this.grid, unit.position, {
-              id: "temp",
-              name: "temp",
-              team: "enemy",
-              hp: 1,
-              maxHp: 1,
-              actionPoints: 0,
-              maxActionPoints: 0,
-              movementPoints: 0,
-              maxMovementPoints: 0,
-              position: { x: tile.x, y: tile.y, elevation: tile.elevation },
-              isOverwatch: false,
-              isSuppressed: false,
-              isPanicked: false,
-              unitClass: "assault",
-              weapon: unit.weapon,
-              abilities: [],
-              inventory: [],
-              statusEffects: [],
-              will: 50,
-              maxWill: 50,
-            });
-            if (sightline.visible) {
-              tile.fogState = "visible";
-            }
-          }
+        const distance = getManhattanDistance(unit.position, tile);
+        if (distance > sightRadius) {
+          continue;
+        }
+
+        const sightline = calculateSightline(this.grid, unit.position, {
+          id: "temp",
+          name: "temp",
+          team: "enemy",
+          hp: 1,
+          maxHp: 1,
+          actionPoints: 0,
+          maxActionPoints: 0,
+          movementPoints: 0,
+          maxMovementPoints: 0,
+          position: { x: tile.x, y: tile.y, elevation: tile.elevation },
+          isOverwatch: false,
+          isSuppressed: false,
+          isPanicked: false,
+          unitClass: "assault",
+          weapon: unit.weapon,
+          abilities: [],
+          inventory: [],
+          statusEffects: [],
+          will: 50,
+          maxWill: 50,
+        });
+        if (sightline.visible) {
+          tile.fogState = "visible";
         }
       }
     }
