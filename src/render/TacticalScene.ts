@@ -12,7 +12,7 @@ import {
   Vector3,
   VertexData,
 } from "@babylonjs/core";
-import { AdvancedDynamicTexture, Control, Rectangle, TextBlock } from "@babylonjs/gui";
+import { AdvancedDynamicTexture, Control, Rectangle, StackPanel, TextBlock } from "@babylonjs/gui";
 import { GRID_HEIGHT, GRID_WIDTH, getTile } from "../game/Grid";
 import type { BattleState } from "../game/BattleState";
 import type { GridPosition, Tile, Unit } from "../game/types";
@@ -25,6 +25,13 @@ type MeshMetadata =
 const TILE_SIZE = 1;
 const UNIT_MOVE_SPEED_TILES_PER_SECOND = 5;
 
+/** Camera–unit distance at which nameplates use the smallest uniform scale. */
+const NAMEPLATE_DIST_NEAR = 7.5;
+/** Camera–unit distance at which nameplates reach their largest scale. */
+const NAMEPLATE_DIST_FAR = 26;
+const NAMEPLATE_SCALE_NEAR = 0.72;
+const NAMEPLATE_SCALE_FAR = 1.88;
+
 interface UnitAnimation {
   waypoints: Vector3[];
   waypointIndex: number;
@@ -33,7 +40,9 @@ interface UnitAnimation {
 interface UnitLabelHandles {
   readonly adt: AdvancedDynamicTexture;
   readonly rect: Rectangle;
+  readonly nameplatePlane: Mesh;
   readonly nameText: TextBlock;
+  readonly roleText: TextBlock;
   readonly hpText: TextBlock;
 }
 
@@ -328,47 +337,69 @@ export class TacticalScene {
   }
 
   private attachUnitNameplate(unitMesh: Mesh, unit: Unit): void {
-    const plane = MeshBuilder.CreatePlane(`${unit.id}-nameplate`, { width: 1.45, height: 0.44 }, this.scene);
+    const plane = MeshBuilder.CreatePlane(`${unit.id}-nameplate`, { width: 1.58, height: 0.58 }, this.scene);
     plane.parent = unitMesh;
-    plane.position = new Vector3(0, 1.24, 0);
+    plane.position = new Vector3(0, 1.26, 0);
     plane.billboardMode = Mesh.BILLBOARDMODE_ALL;
     plane.isPickable = false;
 
-    const adt = AdvancedDynamicTexture.CreateForMesh(plane, 900, 280, false);
+    const adt = AdvancedDynamicTexture.CreateForMesh(plane, 940, 360, false);
 
     const rect = new Rectangle(`${unit.id}-label-frame`);
-    rect.width = "92%";
-    rect.height = "86%";
+    rect.width = "94%";
+    rect.height = "88%";
     rect.cornerRadius = 14;
     rect.thickness = 1;
     rect.color = "rgba(140,200,240,0.45)";
     rect.background = "rgba(6,10,14,0.88)";
     adt.addControl(rect);
 
+    const stack = new StackPanel(`${unit.id}-label-stack`);
+    stack.isVertical = true;
+    stack.width = "100%";
+    stack.height = "100%";
+    stack.spacing = 2;
+    stack.paddingTop = "8px";
+    stack.paddingBottom = "8px";
+    stack.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+    stack.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
+    rect.addControl(stack);
+
     const nameText = new TextBlock(`${unit.id}-label-name`, "");
     nameText.text = unit.name;
     nameText.color = unit.team === "player" ? "#c5efff" : "#ffc9c0";
-    nameText.fontSize = 42;
+    nameText.fontSize = 40;
     nameText.fontWeight = "bold";
     nameText.fontFamily = "Oxanium, Segoe UI, Arial, sans-serif";
-    nameText.resizeToFit = true;
     nameText.textWrapping = true;
+    nameText.resizeToFit = false;
+    nameText.height = "48px";
     nameText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-    nameText.textVerticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-    nameText.paddingTop = "10px";
-    rect.addControl(nameText);
+    nameText.textVerticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
+
+    const roleText = new TextBlock(`${unit.id}-label-role`, "");
+    roleText.text = formatRoleLine(unit);
+    roleText.color = "#aabecb";
+    roleText.fontSize = 26;
+    roleText.fontFamily = "IBM Plex Mono, Consolas, monospace";
+    roleText.height = "34px";
+    roleText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+    roleText.textVerticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
 
     const hpText = new TextBlock(`${unit.id}-label-hp`, "");
     hpText.text = `HP ${unit.hp}/${unit.maxHp}`;
     hpText.color = "#9fb8b0";
-    hpText.fontSize = 30;
+    hpText.fontSize = 28;
     hpText.fontFamily = "IBM Plex Mono, Consolas, monospace";
+    hpText.height = "38px";
     hpText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-    hpText.textVerticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
-    hpText.paddingBottom = "12px";
-    rect.addControl(hpText);
+    hpText.textVerticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
 
-    this.unitLabels.set(unit.id, { adt, rect, nameText, hpText });
+    stack.addControl(nameText);
+    stack.addControl(roleText);
+    stack.addControl(hpText);
+
+    this.unitLabels.set(unit.id, { adt, rect, nameplatePlane: plane, nameText, roleText, hpText });
   }
 
   private renderCover(tile: Tile): void {
@@ -512,6 +543,23 @@ export class TacticalScene {
     this.startQueuedMovementAnimations();
     this.updateMovementAnimations(deltaMs);
     this.updateShotEffects(deltaMs);
+    this.updateNameplateScales();
+  }
+
+  private updateNameplateScales(): void {
+    const camPos = this.camera.globalPosition;
+    this.unitLabels.forEach((label, unitId) => {
+      const unitMesh = this.unitMeshes.get(unitId);
+      if (unitMesh === undefined || !unitMesh.isVisible) {
+        return;
+      }
+
+      const unitPos = unitMesh.getAbsolutePosition();
+      const dist = Vector3.Distance(camPos, unitPos);
+      const t = Math.max(0, Math.min(1, (dist - NAMEPLATE_DIST_NEAR) / (NAMEPLATE_DIST_FAR - NAMEPLATE_DIST_NEAR)));
+      const scale = NAMEPLATE_SCALE_NEAR + t * (NAMEPLATE_SCALE_FAR - NAMEPLATE_SCALE_NEAR);
+      label.nameplatePlane.scaling.setAll(scale);
+    });
   }
 
   private resolveMeshMetadata(mesh: AbstractMesh | null | undefined): MeshMetadata | undefined {
@@ -719,6 +767,7 @@ export class TacticalScene {
       const label = this.unitLabels.get(unit.id);
       if (label !== undefined) {
         label.nameText.text = unit.name;
+        label.roleText.text = formatRoleLine(unit);
         label.hpText.text = `HP ${unit.hp}/${unit.maxHp}`;
         const hpRatio = unit.maxHp === 0 ? 0 : unit.hp / unit.maxHp;
         label.hpText.color =
@@ -952,4 +1001,22 @@ export class TacticalScene {
     this.impactFlashMeshes.length = 0;
     this.unitAnimations.clear();
   }
+}
+
+function capitalizeLabel(value: string): string {
+  return value.charAt(0).toUpperCase() + value.slice(1);
+}
+
+function truncateLabel(text: string, maxChars: number): string {
+  const t = text.trim();
+  if (t.length <= maxChars) {
+    return t;
+  }
+  return `${t.slice(0, Math.max(1, maxChars - 1))}…`;
+}
+
+function formatRoleLine(unit: Unit): string {
+  const cls = capitalizeLabel(unit.unitClass);
+  const weapon = truncateLabel(unit.weapon.name, 26);
+  return `${cls} · ${weapon}`;
 }
