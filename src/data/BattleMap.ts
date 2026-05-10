@@ -1,4 +1,4 @@
-import type { CoverSides, GridPosition, TerrainType } from "../game/types";
+import type { CoverSides, GridPosition, MissionType, TerrainType } from "../game/types";
 
 export interface AuthoredTile {
   x: number;
@@ -23,6 +23,9 @@ export interface ThemeConfig {
 export interface MapLayout {
   id: string;
   name: string;
+  missionType: MissionType;
+  objective: string;
+  extractZone?: GridPosition;
   width: number;
   height: number;
   playerStarts: GridPosition[];
@@ -219,6 +222,8 @@ export const mapLayouts: MapLayout[] = [
   {
     id: "station-7g",
     name: "Derelict Station 7G",
+    missionType: "eliminate",
+    objective: "Eliminate all active Sovereign remnants.",
     width: 10,
     height: 10,
     playerStarts: [{ x: 1, y: 1, elevation: 0 }, { x: 2, y: 2, elevation: 0 }, { x: 1, y: 3, elevation: 0 }],
@@ -228,6 +233,8 @@ export const mapLayouts: MapLayout[] = [
   {
     id: "abandoned-outpost",
     name: "Abandoned Outpost",
+    missionType: "eliminate",
+    objective: "Clear the outpost and keep the squad alive.",
     width: 10,
     height: 10,
     playerStarts: [{ x: 1, y: 4, elevation: 0 }, { x: 2, y: 5, elevation: 0 }, { x: 1, y: 6, elevation: 0 }],
@@ -237,6 +244,9 @@ export const mapLayouts: MapLayout[] = [
   {
     id: "void-rift",
     name: "Void Rift",
+    missionType: "extract",
+    objective: "Reach the extraction beacon at the far side of the rift.",
+    extractZone: { x: 5, y: 9, elevation: 0 },
     width: 10,
     height: 10,
     playerStarts: [{ x: 4, y: 0, elevation: 0 }, { x: 5, y: 0, elevation: 0 }, { x: 4, y: 1, elevation: 0 }],
