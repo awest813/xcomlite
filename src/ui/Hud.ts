@@ -1,4 +1,5 @@
 import type { BattleState } from "../game/BattleState";
+import type { BattlePhase } from "../game/types";
 import { getTheme } from "../game/Units";
 
 export class Hud {
@@ -7,6 +8,8 @@ export class Hud {
   private readonly operationTitle: HTMLDivElement;
   private readonly mapSubtitle: HTMLDivElement;
   private readonly teamPill: HTMLDivElement;
+  private readonly turnStrip: HTMLDivElement;
+  private readonly phaseStrip: HTMLDivElement;
   private readonly selectedPanel: HTMLDivElement;
   private readonly roster: HTMLDivElement;
   private readonly hoverIntel: HTMLDivElement;
@@ -17,6 +20,7 @@ export class Hud {
   private readonly explosionIntel: HTMLDivElement;
   private readonly ordersLabel: HTMLDivElement;
   private readonly shortcutsHint: HTMLDivElement;
+  private readonly cancelButton: HTMLButtonElement;
   private readonly fireButton: HTMLButtonElement;
   private readonly abilityPanel: HTMLDivElement;
   private readonly overwatchButton: HTMLButtonElement;
@@ -48,6 +52,14 @@ export class Hud {
     this.teamPill.className = "hud__team-pill";
 
     header.append(this.operationTitle, this.mapSubtitle, this.teamPill);
+
+    const statusRow = document.createElement("div");
+    statusRow.className = "hud__status-row";
+    this.turnStrip = document.createElement("div");
+    this.turnStrip.className = "hud__turn-strip";
+    this.phaseStrip = document.createElement("div");
+    this.phaseStrip.className = "hud__phase-chip";
+    statusRow.append(this.turnStrip, this.phaseStrip);
 
     const squadSection = this.makeSection("Squad", "hud__section--squad");
     this.roster = document.createElement("div");
@@ -84,11 +96,16 @@ export class Hud {
     this.shortcutsHint = document.createElement("div");
     this.shortcutsHint.className = "hud__shortcuts";
     this.shortcutsHint.textContent =
-      "1–3 squad · L reload · E end turn · F fire · O overwatch · R restart mission";
+      "1–3 squad · Tab cycle · [ ] rotate camera · L reload · E end · F fire · O overwatch · Esc cancel · R restart";
     ordersSection.append(this.ordersLabel, this.shortcutsHint);
 
     this.actionsRow = document.createElement("div");
     this.actionsRow.className = "hud__actions";
+
+    this.cancelButton = this.makeActionButton("Cancel", "Esc", ["hud__btn", "hud__btn--ghost", "hud__btn--cancel"], () =>
+      this.battleState.cancelTacticalAction()
+    );
+    this.cancelButton.style.display = "none";
 
     this.reloadButton = this.makeActionButton("Reload", "L", ["hud__btn", "hud__btn--reload"], () =>
       this.battleState.reloadWeapon()
@@ -114,11 +131,19 @@ export class Hud {
     );
     this.restartButton.style.display = "none";
 
-    this.actionsRow.append(this.reloadButton, this.fireButton, this.overwatchButton, this.endTurnButton, this.restartButton);
+    this.actionsRow.append(
+      this.cancelButton,
+      this.reloadButton,
+      this.fireButton,
+      this.overwatchButton,
+      this.endTurnButton,
+      this.restartButton
+    );
 
     this.root.append(
       this.missionResultLabel,
       header,
+      statusRow,
       squadSection,
       operatorSection,
       battlefieldSection,
@@ -187,6 +212,8 @@ export class Hud {
     this.teamPill.textContent = capitalize(this.battleState.currentTeam);
     this.teamPill.dataset.team = this.battleState.currentTeam;
 
+    this.renderTurnAndPhase();
+
     this.renderSelectedPanel();
     this.renderHoverIntel();
     this.renderTileIntel();
@@ -230,7 +257,38 @@ export class Hud {
       this.statRow("Will", `${selectedUnit.will} / ${selectedUnit.maxWill}`, "")
     );
 
-    this.selectedPanel.append(title, role, stats);
+    const kitTitle = document.createElement("div");
+    kitTitle.className = "hud__inventory-title";
+    kitTitle.textContent = "Kit";
+
+    const kitList = document.createElement("ul");
+    kitList.className = "hud__inventory-list";
+
+    if (selectedUnit.inventory.length === 0) {
+      const li = document.createElement("li");
+      li.className = "hud__inventory-row hud__inventory-row--empty";
+      li.textContent = "No expendable gear.";
+      kitList.appendChild(li);
+    } else {
+      for (const item of selectedUnit.inventory) {
+        const li = document.createElement("li");
+        li.className = "hud__inventory-row";
+        li.dataset.category = item.category;
+
+        const itemName = document.createElement("span");
+        itemName.className = "hud__inventory-name";
+        itemName.textContent = item.name;
+
+        const qty = document.createElement("span");
+        qty.className = "hud__inventory-qty";
+        qty.textContent = `${item.quantity}/${item.maxQuantity}`;
+
+        li.append(itemName, qty);
+        kitList.appendChild(li);
+      }
+    }
+
+    this.selectedPanel.append(title, role, stats, kitTitle, kitList);
   }
 
   private statRow(label: string, value: string, hpLevel: string): HTMLElement {
@@ -254,18 +312,40 @@ export class Hud {
     return row;
   }
 
+  private renderTurnAndPhase(): void {
+    if (this.battleState.missionResult !== "in_progress") {
+      this.turnStrip.textContent = "Mission concluded";
+      this.turnStrip.dataset.act = "neutral";
+      this.phaseStrip.textContent = "";
+      return;
+    }
+
+    if (this.battleState.currentTeam === "enemy") {
+      this.turnStrip.textContent = "Enemy activity";
+      this.turnStrip.dataset.act = "enemy";
+      this.phaseStrip.textContent = "Hostiles are resolving — watch the board.";
+      return;
+    }
+
+    this.turnStrip.textContent = "Your turn — Commander";
+    this.turnStrip.dataset.act = "player";
+    this.phaseStrip.textContent = phaseRibbonCopy(this.battleState.phase);
+  }
+
   private renderOrders(): void {
     const selectedUnit = this.battleState.selectedUnit;
-    this.ordersLabel.textContent =
+
+    let orders =
       selectedUnit === undefined
         ? "Select a soldier to plot movement."
         : this.battleState.phase === "grenade_aiming"
-          ? "Click a tile to target, then press Throw."
+          ? "Click a tile to target, then Throw. Esc cancels."
           : this.battleState.phase === "aiming"
-            ? "Press Fire when ready. Reload (L) if the mag is dry. Click another enemy to switch targets."
+            ? "Press Fire or switch targets. Reload (L) if the mag is dry. Esc cancels aim."
             : this.battleState.phase === "ability_select"
-              ? "Select a target for the ability."
+              ? "Select a target for the ability. Esc cancels."
               : "Hover tiles for route preview. Click a highlighted tile to move, or a visible enemy to aim.";
+    this.ordersLabel.textContent = orders;
   }
 
   private syncPrimaryActions(): void {
@@ -296,6 +376,14 @@ export class Hud {
       selectedUnit.isOverwatch ||
       selectedUnit.weapon.ammo <= 0;
     this.endTurnButton.disabled = this.battleState.currentTeam !== "player";
+
+    const showCancel =
+      this.battleState.currentTeam === "player" &&
+      this.battleState.missionResult === "in_progress" &&
+      (this.battleState.phase === "aiming" ||
+        this.battleState.phase === "grenade_aiming" ||
+        this.battleState.phase === "ability_select");
+    this.cancelButton.style.display = showCancel ? "" : "none";
   }
 
   private renderAbilityButtons(): void {
@@ -607,4 +695,21 @@ function hpBarLevel(hp: number, maxHp: number): string {
   if (ratio >= 0.66) return "is-high";
   if (ratio >= 0.33) return "is-mid";
   return "is-low";
+}
+
+function phaseRibbonCopy(phase: BattlePhase): string {
+  switch (phase) {
+    case "selecting":
+      return "Awaiting orders — pick an operative.";
+    case "moving":
+      return "Movement — blue tiles are reachable.";
+    case "aiming":
+      return "Targeting — confirm shot or cancel.";
+    case "grenade_aiming":
+      return "Ordinance — paint impact, then Throw.";
+    case "ability_select":
+      return "Ability — choose a valid ally.";
+    default:
+      return "";
+  }
 }

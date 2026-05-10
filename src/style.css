@@ -83,6 +83,54 @@ button {
   background: linear-gradient(180deg, rgba(30, 42, 54, 0.5) 0%, transparent 100%);
 }
 
+.hud__status-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 14px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(6, 10, 14, 0.35);
+}
+
+.hud__turn-strip {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  color: #c5dce8;
+}
+
+.hud__turn-strip[data-act="player"] {
+  color: #b8ecff;
+}
+
+.hud__turn-strip[data-act="enemy"] {
+  color: #ffc9b8;
+  animation: hud-enemy-pulse 1.25s ease-in-out infinite alternate;
+}
+
+.hud__turn-strip[data-act="neutral"] {
+  color: var(--text-muted);
+  letter-spacing: 0.08em;
+}
+
+@keyframes hud-enemy-pulse {
+  from {
+    opacity: 0.72;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.hud__phase-chip {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.45;
+  color: var(--accent-amber);
+}
+
 .hud__operation-title {
   font-weight: 700;
   font-size: 15px;
@@ -252,6 +300,68 @@ button {
   grid-template-columns: 44px 1fr;
   align-items: center;
   gap: 8px;
+}
+
+.hud__inventory-title {
+  margin: 12px 0 6px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.hud__inventory-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.hud__inventory-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 7px 9px;
+  font-size: 12px;
+  background: rgba(8, 12, 16, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-sm);
+  border-left: 3px solid rgba(140, 190, 220, 0.45);
+}
+
+.hud__inventory-row[data-category="explosive"] {
+  border-left-color: rgba(255, 160, 90, 0.75);
+}
+
+.hud__inventory-row[data-category="medical"] {
+  border-left-color: rgba(90, 220, 140, 0.65);
+}
+
+.hud__inventory-row[data-category="utility"] {
+  border-left-color: rgba(160, 190, 255, 0.65);
+}
+
+.hud__inventory-row--empty {
+  justify-content: center;
+  font-style: italic;
+  color: var(--text-dim);
+  border-left-width: 1px;
+}
+
+.hud__inventory-name {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.hud__inventory-qty {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
 }
 
 .hud__stat-label {

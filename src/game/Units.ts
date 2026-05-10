@@ -1,7 +1,38 @@
 import { voidSovereignsTheme, type ThemeConfig } from "../data/BattleMap";
-import type { Ability, GridPosition, Unit, WeaponProfile } from "./types";
+import type { Ability, GridPosition, InventoryItem, Unit, WeaponProfile } from "./types";
 
 let currentTheme: ThemeConfig = voidSovereignsTheme;
+
+const CONSUMABLE_INVENTORY_META: Partial<
+  Record<Ability["type"], { name: string; category: InventoryItem["category"] }>
+> = {
+  grenade: { name: "Frag grenade", category: "explosive" },
+  medkit: { name: "Field medkit", category: "medical" },
+  flashbang: { name: "Flashbang", category: "explosive" },
+  smoke: { name: "Smoke grenade", category: "utility" },
+};
+
+function buildConsumableInventory(unitId: string, abilities: Ability[]): InventoryItem[] {
+  const items: InventoryItem[] = [];
+
+  for (const ability of abilities) {
+    const meta = CONSUMABLE_INVENTORY_META[ability.type];
+    if (meta === undefined) {
+      continue;
+    }
+
+    items.push({
+      id: `${unitId}-inv-${ability.type}`,
+      name: meta.name,
+      category: meta.category,
+      quantity: ability.uses,
+      maxQuantity: ability.maxUses,
+      linkedAbility: ability.type,
+    });
+  }
+
+  return items;
+}
 
 export function setTheme(theme: ThemeConfig): void {
   currentTheme = theme;
@@ -33,6 +64,8 @@ function createAbility(type: Ability["type"], uses: number): Ability {
 }
 
 function createUnit(id: string, name: string, team: Unit["team"], position: GridPosition, unitClass: Unit["unitClass"], weaponType: string, abilityTypes: Ability["type"][]): Unit {
+  const abilities = abilityTypes.map((t) => createAbility(t, t === "overwatch" || t === "suppression" ? 99 : 2));
+
   return {
     id,
     name,
@@ -49,7 +82,8 @@ function createUnit(id: string, name: string, team: Unit["team"], position: Grid
     isSuppressed: false,
     isPanicked: false,
     weapon: weapons[weaponType],
-    abilities: abilityTypes.map((t) => createAbility(t, t === "overwatch" || t === "suppression" ? 99 : 2)),
+    abilities,
+    inventory: buildConsumableInventory(id, abilities),
     statusEffects: [],
     will: unitClass === "sniper" ? 40 : 50,
     maxWill: unitClass === "sniper" ? 40 : 50,

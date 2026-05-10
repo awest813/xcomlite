@@ -53,6 +53,14 @@ export function installDebugHooks(battleState: BattleState, scene: Scene, update
               position: selectedUnit.position,
               weaponAmmo: selectedUnit.weapon.ammo,
               weaponClip: selectedUnit.weapon.clipSize,
+              inventory: selectedUnit.inventory.map((item) => ({
+                id: item.id,
+                name: item.name,
+                category: item.category,
+                quantity: item.quantity,
+                maxQuantity: item.maxQuantity,
+                linkedAbility: item.linkedAbility,
+              })),
             },
       units: battleState.units.map((unit) => ({
         id: unit.id,
@@ -67,6 +75,14 @@ export function installDebugHooks(battleState: BattleState, scene: Scene, update
         position: unit.position,
         weaponAmmo: unit.weapon.ammo,
         weaponClip: unit.weapon.clipSize,
+        inventory: unit.inventory.map((item) => ({
+          id: item.id,
+          name: item.name,
+          category: item.category,
+          quantity: item.quantity,
+          maxQuantity: item.maxQuantity,
+          linkedAbility: item.linkedAbility,
+        })),
       })),
       terrain: battleState.grid
         .filter((tile) => tile.terrain !== "floor" || !tile.walkable || tile.cover > 0 || tile.moveCost > 1)
