@@ -1,5 +1,5 @@
 import type { BattleState } from "../game/BattleState";
-import type { BattlePhase } from "../game/types";
+import type { BattlePhase, MissionType } from "../game/types";
 import { getTheme } from "../game/Units";
 
 export class Hud {
@@ -206,10 +206,9 @@ export class Hud {
     }
 
     const theme = getTheme();
+    const objective = objectiveLabel(this.battleState.missionType);
     this.operationTitle.textContent = theme.name;
-    this.mapSubtitle.textContent = `${this.battleState.mapLayout.name} · ${objectiveLabel(
-      this.battleState.missionType
-    )}: ${this.battleState.mapLayout.objective}`;
+    this.mapSubtitle.textContent = `${this.battleState.mapLayout.name} · ${objective}: ${this.battleState.mapLayout.objective}`;
     this.renderMissionResult();
     this.teamPill.textContent = capitalize(this.battleState.currentTeam);
     this.teamPill.dataset.team = this.battleState.currentTeam;
@@ -716,6 +715,6 @@ function phaseRibbonCopy(phase: BattlePhase): string {
   }
 }
 
-function objectiveLabel(missionType: string): string {
+function objectiveLabel(missionType: MissionType): string {
   return missionType === "extract" ? "Extract" : "Eliminate";
 }
