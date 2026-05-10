@@ -87,6 +87,7 @@ export class TacticalScene {
   private readonly extractZoneMaterial: StandardMaterial;
   private readonly fogHiddenMaterial: StandardMaterial;
   private readonly fogExploredMaterial: StandardMaterial;
+  private readonly invalidFlashMaterial: StandardMaterial;
   private hoveredPath: GridPosition[] = [];
   private readonly unitAnimations = new Map<string, UnitAnimation>();
   private readonly unitLabels = new Map<string, UnitLabelHandles>();
@@ -133,6 +134,8 @@ export class TacticalScene {
     this.extractZoneMaterial.emissiveColor = new Color3(0.1, 0.25, 0.4);
     this.fogHiddenMaterial = this.createMaterial("fog-hidden-material", new Color3(0.02, 0.02, 0.04));
     this.fogExploredMaterial = this.createMaterial("fog-explored-material", new Color3(0.08, 0.08, 0.12));
+    this.invalidFlashMaterial = this.createMaterial("invalid-flash-material", new Color3(0.62, 0.12, 0.1));
+    this.invalidFlashMaterial.emissiveColor = new Color3(0.42, 0.06, 0.05);
     this.selectionRingMaterial.emissiveColor = new Color3(0.1, 0.28, 0.42);
     this.pathMarkerMaterial.emissiveColor = new Color3(0.18, 0.13, 0.01);
     this.visibleEnemyMarkerMaterial.emissiveColor = new Color3(0.22, 0.1, 0.01);
@@ -526,6 +529,9 @@ export class TacticalScene {
         case "r":
           this.battleState.restartMission();
           break;
+        case "l":
+          this.battleState.reloadWeapon();
+          break;
       }
     });
   }
@@ -558,7 +564,10 @@ export class TacticalScene {
       if (metadata?.kind === "unit") {
         const unit = this.battleState.units.find((candidate) => candidate.id === metadata.unitId);
         if (unit?.team === "enemy") {
-          this.battleState.previewAimAtUnit(metadata.unitId);
+          const aimed = this.battleState.previewAimAtUnit(metadata.unitId);
+          if (!aimed) {
+            this.flashInvalidTile(unit.position);
+          }
         } else {
           this.battleState.selectUnit(metadata.unitId);
         }
@@ -575,10 +584,23 @@ export class TacticalScene {
           this.battleState.setHoveredTile(metadata.position);
           return;
         }
-        this.battleState.moveSelectedUnit(metadata.position);
+        const moved = this.battleState.moveSelectedUnit(metadata.position);
         this.hoveredPath = [];
         this.syncTileHighlights();
+        if (!moved) {
+          this.flashInvalidTile(metadata.position);
+        }
       }
+  }
+
+  private flashInvalidTile(position: GridPosition): void {
+    const mesh = this.tileMeshes.get(this.tileKey(position));
+    if (mesh === undefined) {
+      return;
+    }
+
+    mesh.material = this.invalidFlashMaterial;
+    window.setTimeout(() => this.syncTileHighlights(), 280);
   }
 
   update(deltaMs: number): void {

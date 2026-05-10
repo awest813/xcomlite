@@ -649,3 +649,41 @@ button {
 .map-selector__button:hover {
   background: rgba(56, 130, 92, 0.9);
 }
+
+.hud__btn--reload {
+  background: rgba(38, 72, 98, 0.88);
+  border-color: rgba(130, 190, 235, 0.42);
+}
+
+.hud__btn--reload:hover:not(:disabled) {
+  background: rgba(48, 88, 118, 0.95);
+}
+
+.tactical-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 28px;
+  transform: translateX(-50%) translateY(14px);
+  max-width: min(440px, calc(100vw - 40px));
+  padding: 12px 18px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.45;
+  text-align: center;
+  color: #f2f6fa;
+  background: rgba(14, 18, 26, 0.94);
+  border: 1px solid rgba(255, 140, 110, 0.5);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-panel);
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.2s ease, transform 0.2s ease, visibility 0.2s;
+  z-index: 10020;
+}
+
+.tactical-toast.is-visible {
+  opacity: 1;
+  visibility: visible;
+  transform: translateX(-50%) translateY(0);
+}

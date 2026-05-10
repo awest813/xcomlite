@@ -51,6 +51,8 @@ export function installDebugHooks(battleState: BattleState, scene: Scene, update
               movementPoints: selectedUnit.movementPoints,
               maxMovementPoints: selectedUnit.maxMovementPoints,
               position: selectedUnit.position,
+              weaponAmmo: selectedUnit.weapon.ammo,
+              weaponClip: selectedUnit.weapon.clipSize,
               inventory: selectedUnit.inventory.map((item) => ({
                 id: item.id,
                 name: item.name,
@@ -71,6 +73,8 @@ export function installDebugHooks(battleState: BattleState, scene: Scene, update
         movementPoints: unit.movementPoints,
         maxMovementPoints: unit.maxMovementPoints,
         position: unit.position,
+        weaponAmmo: unit.weapon.ammo,
+        weaponClip: unit.weapon.clipSize,
         inventory: unit.inventory.map((item) => ({
           id: item.id,
           name: item.name,
