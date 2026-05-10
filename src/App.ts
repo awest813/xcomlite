@@ -69,9 +69,8 @@ class App {
     selector.className = "map-selector";
 
     const label = document.createElement("span");
-    label.textContent = "Map: ";
-    label.style.marginRight = "8px";
-    label.style.color = "#a0a0a0";
+    label.className = "map-selector__label";
+    label.textContent = "Deploy zone";
     selector.appendChild(label);
 
     for (const layout of mapLayouts) {

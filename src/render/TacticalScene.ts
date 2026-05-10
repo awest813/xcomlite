@@ -370,7 +370,7 @@ export class TacticalScene {
     this.scene.onPointerObservable.add((pointerInfo) => {
       if (pointerInfo.type === PointerEventTypes.POINTERMOVE) {
         const pickedMesh = this.scene.pick(this.scene.pointerX, this.scene.pointerY)?.pickedMesh;
-        this.updateHoveredPath(pickedMesh);
+        this.onPointerHoverMove(pickedMesh);
         return;
       }
 
@@ -459,9 +459,34 @@ export class TacticalScene {
     this.updateShotEffects(deltaMs);
   }
 
-  private updateHoveredPath(mesh: AbstractMesh | null | undefined): void {
-    const metadata = mesh?.metadata as MeshMetadata | undefined;
-    const hoveredTile = metadata?.kind === "tile" ? metadata.position : null;
+  private resolveMeshMetadata(mesh: AbstractMesh | null | undefined): MeshMetadata | undefined {
+    let current: AbstractMesh | null | undefined = mesh;
+    while (current !== null && current !== undefined) {
+      const meta = current.metadata as MeshMetadata | undefined;
+      if (meta?.kind === "tile" || meta?.kind === "unit") {
+        return meta;
+      }
+      current = current.parent as AbstractMesh | null | undefined;
+    }
+    return undefined;
+  }
+
+  private onPointerHoverMove(mesh: AbstractMesh | null | undefined): void {
+    const meta = this.resolveMeshMetadata(mesh);
+
+    if (meta?.kind === "unit") {
+      this.battleState.setHoveredUnit(meta.unitId);
+      if (this.hoveredPath.length > 0) {
+        this.hoveredPath = [];
+        this.syncTileHighlights();
+      }
+      this.battleState.setHoveredTile(null);
+      return;
+    }
+
+    this.battleState.setHoveredUnit(null);
+
+    const hoveredTile = meta?.kind === "tile" ? meta.position : null;
     const nextPath = hoveredTile === null ? [] : this.battleState.getPathForSelectedUnit(hoveredTile);
 
     if (this.arePathsEqual(this.hoveredPath, nextPath)) {

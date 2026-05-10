@@ -7,6 +7,10 @@ export function setTheme(theme: ThemeConfig): void {
   currentTheme = theme;
 }
 
+export function getTheme(): ThemeConfig {
+  return currentTheme;
+}
+
 const weapons: Record<string, WeaponProfile> = {
   rifle: { type: "rifle", name: "Assault Rifle", damage: 3, range: 12, aimBonus: 0, clipSize: 6, ammo: 6 },
   pistol: { type: "pistol", name: "Sidearm", damage: 2, range: 6, aimBonus: 10, clipSize: 12, ammo: 12 },
