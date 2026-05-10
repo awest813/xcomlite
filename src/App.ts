@@ -4,7 +4,7 @@ import { BattleState } from "./game/BattleState";
 import { installDebugHooks } from "./game/DebugHooks";
 import { setTheme } from "./game/Units";
 import { TurnController } from "./game/TurnController";
-import { TacticalScene } from "./render/TacticalScene";
+import type { TacticalScene } from "./render/TacticalScene";
 import { Hud } from "./ui/Hud";
 import "./style.css";
 
@@ -19,6 +19,7 @@ class App {
   private canvas: HTMLCanvasElement;
   private hud: Hud | null = null;
   private turnController: TurnController | null = null;
+  private mapSwitchQueue: Promise<void> = Promise.resolve();
 
   constructor() {
     this.canvas = document.createElement("canvas");
@@ -31,16 +32,30 @@ class App {
     this.scene = new Scene(this.engine);
     this.camera = new ArcRotateCamera("TacticalCamera", Math.PI / 4, Math.PI / 3, 16, Vector3.Zero(), this.scene);
 
-    this.loadMap(defaultMapLayout);
+    this.engine.runRenderLoop(() => {
+      this.tacticalScene?.update(this.engine.getDeltaTime());
+      this.scene.render();
+    });
+
+    this.enqueueLoadMap(defaultMapLayout);
     this.createMapSelector();
 
     window.addEventListener("resize", () => this.engine.resize());
   }
 
-  private loadMap(layout: typeof defaultMapLayout): void {
-    this.battleState?.grid.forEach((tile) => { tile.occupiedBy = null; });
+  private enqueueLoadMap(layout: typeof defaultMapLayout): void {
+    this.mapSwitchQueue = this.mapSwitchQueue.then(() => this.performLoadMap(layout)).catch((err) => {
+      console.error(err);
+    });
+  }
+
+  private async performLoadMap(layout: typeof defaultMapLayout): Promise<void> {
+    this.battleState?.grid.forEach((tile) => {
+      tile.occupiedBy = null;
+    });
 
     this.battleState = new BattleState(layout);
+
     if (this.turnController) {
       this.turnController.dispose();
     }
@@ -48,7 +63,10 @@ class App {
 
     if (this.tacticalScene) {
       this.tacticalScene.dispose();
+      this.tacticalScene = null;
     }
+
+    const { TacticalScene } = await import("./render/TacticalScene");
     this.tacticalScene = new TacticalScene(this.scene, this.canvas, this.camera, this.battleState);
 
     if (this.hud) {
@@ -56,11 +74,8 @@ class App {
     }
     this.hud = new Hud(this.battleState);
 
-    installDebugHooks(this.battleState, this.scene, (deltaMs) => this.tacticalScene!.update(deltaMs));
-
-    this.engine.runRenderLoop(() => {
-      this.tacticalScene!.update(this.engine.getDeltaTime());
-      this.scene.render();
+    installDebugHooks(this.battleState, this.scene, (deltaMs) => {
+      this.tacticalScene?.update(deltaMs);
     });
   }
 
@@ -79,7 +94,7 @@ class App {
       button.textContent = layout.name;
       button.className = "map-selector__button";
       button.addEventListener("click", () => {
-        this.loadMap(layout);
+        this.enqueueLoadMap(layout);
       });
       selector.appendChild(button);
     }

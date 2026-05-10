@@ -14,5 +14,7 @@
     "typescript": "latest",
     "vite": "latest"
   },
-  "dependencies": {}
+  "dependencies": {
+    "@babylonjs/gui": "^9.6.2"
+  }
 }
