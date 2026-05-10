@@ -81,6 +81,7 @@ export class BattleState {
   selectedUnitId: string | null = null;
   selectedTargetUnitId: string | null = null;
   hoveredTilePosition: GridPosition | null = null;
+  hoveredUnitId: string | null = null;
   lastShotResult: ShotResult | null = null;
   lastExplosionResult: ExplosionResult | null = null;
   currentTeam: Team = "player";
@@ -158,9 +159,19 @@ export class BattleState {
     this.selectedAbility = null;
     this.grenadeTargetTile = null;
     this.hoveredTilePosition = null;
+    this.hoveredUnitId = null;
     this.phase = "aiming";
     this.notify();
     return true;
+  }
+
+  setHoveredUnit(unitId: string | null): void {
+    if (this.hoveredUnitId === unitId) {
+      return;
+    }
+
+    this.hoveredUnitId = unitId;
+    this.notify();
   }
 
   setHoveredTile(position: GridPosition | null): void {
@@ -635,6 +646,7 @@ export class BattleState {
     this.grenadeTargetTile = null;
     this.selectedMovementCache = null;
     this.hoveredTilePosition = null;
+    this.hoveredUnitId = null;
     this.phase = "selecting";
     this.resetActionPoints(this.currentTeam);
     this.resetMovementPoints(this.currentTeam);
@@ -736,6 +748,7 @@ export class BattleState {
     this.selectedAbility = null;
     this.grenadeTargetTile = null;
     this.hoveredTilePosition = null;
+    this.hoveredUnitId = null;
     this.lastShotResult = null;
     this.lastExplosionResult = null;
     this.currentTeam = "player";
@@ -928,6 +941,7 @@ export class BattleState {
     this.grenadeTargetTile = null;
     this.selectedMovementCache = null;
     this.hoveredTilePosition = null;
+    this.hoveredUnitId = null;
     this.checkMissionResult();
     this.notify();
     this.updateFogOfWar();

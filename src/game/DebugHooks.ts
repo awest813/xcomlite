@@ -32,6 +32,7 @@ export function installDebugHooks(battleState: BattleState, scene: Scene, update
               moveCost: battleState.hoveredTile.moveCost,
               pathCost: battleState.getPathCostForSelectedUnit(battleState.hoveredTile),
             },
+      hoveredUnitId: battleState.hoveredUnitId,
       previewOrigin: battleState.getPreviewOriginForSelectedUnit() ?? null,
       sightlines,
       targetPreviews: battleState.getTargetPreviewsForSelectedUnit(),
