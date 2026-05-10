@@ -280,6 +280,7 @@ export class BattleState {
 
     unit.actionPoints -= ability.apCost;
     ability.uses -= 1;
+    this.syncInventoryFromAbility(unit, ability.type);
 
     const result = this.createExplosion({ x: target.x, y: target.y, elevation: target.elevation }, GRENADE_RADIUS, GRENADE_DAMAGE);
     this.lastExplosionResult = result;
@@ -319,6 +320,7 @@ export class BattleState {
 
     unit.actionPoints -= ability.apCost;
     ability.uses -= 1;
+    this.syncInventoryFromAbility(unit, ability.type);
     target.hp = Math.min(target.maxHp, target.hp + MEDKIT_HEAL);
 
     this.selectedAbility = null;
@@ -347,6 +349,7 @@ export class BattleState {
 
     unit.actionPoints -= ability.apCost;
     ability.uses -= 1;
+    this.syncInventoryFromAbility(unit, ability.type);
 
     const enemiesInRange = this.getUnitsInRadius({ x: target.x, y: target.y, elevation: target.elevation }, FLASHBANG_RADIUS);
     const stunnedUnits: { unitId: string; damage: number; killed: boolean }[] = [];
@@ -387,6 +390,7 @@ export class BattleState {
 
     unit.actionPoints -= ability.apCost;
     ability.uses -= 1;
+    this.syncInventoryFromAbility(unit, ability.type);
 
     const tilesInRange = this.getTilesInRadius({ x: target.x, y: target.y, elevation: target.elevation }, SMOKE_RADIUS);
     for (const tile of tilesInRange) {
@@ -1148,6 +1152,7 @@ export class BattleState {
           unitClass: "assault",
           weapon: reactiveUnit.weapon,
           abilities: [],
+          inventory: [],
           statusEffects: [],
           will: 50,
           maxWill: 50,
@@ -1191,6 +1196,14 @@ export class BattleState {
     }
 
     return calculateMovement(this.grid, unit);
+  }
+
+  private syncInventoryFromAbility(unit: Unit, abilityType: AbilityType): void {
+    const ability = unit.abilities.find((a) => a.type === abilityType);
+    const entry = unit.inventory.find((i) => i.linkedAbility === abilityType);
+    if (ability !== undefined && entry !== undefined) {
+      entry.quantity = ability.uses;
+    }
   }
 
   private refreshSelectedMovementCache(): void {
@@ -1257,6 +1270,7 @@ export class BattleState {
               unitClass: "assault",
               weapon: unit.weapon,
               abilities: [],
+              inventory: [],
               statusEffects: [],
               will: 50,
               maxWill: 50,

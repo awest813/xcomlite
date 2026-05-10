@@ -200,7 +200,38 @@ export class Hud {
       this.statRow("Will", `${selectedUnit.will} / ${selectedUnit.maxWill}`, "")
     );
 
-    this.selectedPanel.append(title, role, stats);
+    const kitTitle = document.createElement("div");
+    kitTitle.className = "hud__inventory-title";
+    kitTitle.textContent = "Kit";
+
+    const kitList = document.createElement("ul");
+    kitList.className = "hud__inventory-list";
+
+    if (selectedUnit.inventory.length === 0) {
+      const li = document.createElement("li");
+      li.className = "hud__inventory-row hud__inventory-row--empty";
+      li.textContent = "No expendable gear.";
+      kitList.appendChild(li);
+    } else {
+      for (const item of selectedUnit.inventory) {
+        const li = document.createElement("li");
+        li.className = "hud__inventory-row";
+        li.dataset.category = item.category;
+
+        const itemName = document.createElement("span");
+        itemName.className = "hud__inventory-name";
+        itemName.textContent = item.name;
+
+        const qty = document.createElement("span");
+        qty.className = "hud__inventory-qty";
+        qty.textContent = `${item.quantity}/${item.maxQuantity}`;
+
+        li.append(itemName, qty);
+        kitList.appendChild(li);
+      }
+    }
+
+    this.selectedPanel.append(title, role, stats, kitTitle, kitList);
   }
 
   private statRow(label: string, value: string, hpLevel: string): HTMLElement {

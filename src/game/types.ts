@@ -18,6 +18,17 @@ export type UnitClass = "assault" | "support" | "heavy" | "sniper";
 
 export type AbilityType = "grenade" | "medkit" | "flashbang" | "smoke" | "overwatch" | "suppression";
 
+export type InventoryCategory = "explosive" | "medical" | "utility";
+
+export interface InventoryItem {
+  id: string;
+  name: string;
+  category: InventoryCategory;
+  quantity: number;
+  maxQuantity: number;
+  linkedAbility: AbilityType;
+}
+
 export type StatusEffect = "burning" | "stunned" | "poisoned" | "panicked";
 
 export interface StatusEffectData {
@@ -82,6 +93,7 @@ export interface Unit {
   isPanicked: boolean;
   weapon: WeaponProfile;
   abilities: Ability[];
+  inventory: InventoryItem[];
   statusEffects: StatusEffectData[];
   will: number;
   maxWill: number;
