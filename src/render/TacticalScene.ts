@@ -52,6 +52,7 @@ export class TacticalScene {
   private readonly unitHealthBars = new Map<string, Mesh>();
   private readonly unitSelectionRings = new Map<string, Mesh>();
   private readonly unitOverwatchMarkers = new Map<string, Mesh>();
+  private readonly unitSuppressionMarkers = new Map<string, Mesh>();
   private readonly enemySightMarkers = new Map<string, Mesh>();
   private readonly pathMarkerMeshes: Mesh[] = [];
   private readonly sightlineMeshes: LinesMesh[] = [];
@@ -84,6 +85,7 @@ export class TacticalScene {
   private readonly impactHitMaterial: StandardMaterial;
   private readonly impactMissMaterial: StandardMaterial;
   private readonly overwatchMarkerMaterial: StandardMaterial;
+  private readonly suppressionMarkerMaterial: StandardMaterial;
   private readonly extractZoneMaterial: StandardMaterial;
   private readonly fogHiddenMaterial: StandardMaterial;
   private readonly fogExploredMaterial: StandardMaterial;
@@ -130,6 +132,8 @@ export class TacticalScene {
     this.impactMissMaterial.emissiveColor = new Color3(0.15, 0.15, 0.15);
     this.overwatchMarkerMaterial = this.createMaterial("overwatch-marker-material", new Color3(0.2, 0.8, 0.2));
     this.overwatchMarkerMaterial.emissiveColor = new Color3(0.08, 0.3, 0.08);
+    this.suppressionMarkerMaterial = this.createMaterial("suppression-marker-material", new Color3(0.9, 0.55, 0.1));
+    this.suppressionMarkerMaterial.emissiveColor = new Color3(0.3, 0.16, 0.02);
     this.extractZoneMaterial = this.createMaterial("extract-zone-material", new Color3(0.2, 0.6, 0.9));
     this.extractZoneMaterial.emissiveColor = new Color3(0.1, 0.25, 0.4);
     this.fogHiddenMaterial = this.createMaterial("fog-hidden-material", new Color3(0.02, 0.02, 0.04));
@@ -323,6 +327,19 @@ export class TacticalScene {
       overwatchMarker.isPickable = false;
       overwatchMarker.isVisible = false;
       this.unitOverwatchMarkers.set(unit.id, overwatchMarker);
+
+      const suppressionMarker = MeshBuilder.CreateTorus(
+        `${unit.id}-suppression`,
+        { diameter: 1.1, thickness: 0.06, tessellation: 24 },
+        this.scene
+      );
+      suppressionMarker.parent = mesh;
+      suppressionMarker.position.y = -0.44;
+      suppressionMarker.rotation.x = Math.PI / 2;
+      suppressionMarker.material = this.suppressionMarkerMaterial;
+      suppressionMarker.isPickable = false;
+      suppressionMarker.isVisible = false;
+      this.unitSuppressionMarkers.set(unit.id, suppressionMarker);
 
       if (unit.team === "enemy") {
         const sightMarker = MeshBuilder.CreateTorus(
@@ -699,6 +716,7 @@ export class TacticalScene {
       this.unitHealthBars.delete(unitId);
       this.unitSelectionRings.delete(unitId);
       this.unitOverwatchMarkers.delete(unitId);
+      this.unitSuppressionMarkers.delete(unitId);
       this.enemySightMarkers.delete(unitId);
       this.unitAnimations.delete(unitId);
     });
@@ -814,33 +832,28 @@ export class TacticalScene {
         mesh.isVisible = !isHidden;
       }
 
+      const overwatchMarker = this.unitOverwatchMarkers.get(unit.id);
+      if (overwatchMarker !== undefined) {
+        overwatchMarker.isVisible = unit.isOverwatch;
+      }
+
+      const suppressionMarker = this.unitSuppressionMarkers.get(unit.id);
+      if (suppressionMarker !== undefined) {
+        suppressionMarker.isVisible = unit.isSuppressed;
+      }
+
       const bodyMat = this.unitBodyMaterials.get(unit.id);
       if (bodyMat !== undefined) {
         const hpRatio = unit.maxHp === 0 ? 0 : unit.hp / unit.maxHp;
-        if (hpRatio < 0.34) {
+        if (unit.isSuppressed) {
+          bodyMat.emissiveColor = new Color3(0.22, 0.1, 0.0);
+        } else if (hpRatio < 0.34) {
           bodyMat.emissiveColor = new Color3(0.26, 0.05, 0.05);
         } else if (hpRatio < 0.55) {
           bodyMat.emissiveColor = new Color3(0.14, 0.07, 0.03);
         } else {
           bodyMat.emissiveColor = Color3.Black();
         }
-      }
-
-      const selectionRing = this.unitSelectionRings.get(unit.id);
-      if (selectionRing !== undefined) {
-        selectionRing.isVisible = unit.id === this.battleState.selectedUnitId;
-      }
-
-      const healthFill = this.unitHealthBars.get(unit.id);
-      if (healthFill !== undefined) {
-        const hpRatio = unit.maxHp === 0 ? 0 : unit.hp / unit.maxHp;
-        healthFill.scaling.x = Math.max(0.04, hpRatio);
-        healthFill.position.x = -0.34 + 0.34 * hpRatio;
-      }
-
-      const overwatchMarker = this.unitOverwatchMarkers.get(unit.id);
-      if (overwatchMarker !== undefined) {
-        overwatchMarker.isVisible = unit.isOverwatch;
       }
 
       const label = this.unitLabels.get(unit.id);
@@ -1071,6 +1084,7 @@ export class TacticalScene {
     this.unitHealthBars.clear();
     this.unitSelectionRings.clear();
     this.unitOverwatchMarkers.clear();
+    this.unitSuppressionMarkers.clear();
     this.enemySightMarkers.clear();
     this.pathMarkerMeshes.forEach((mesh) => mesh.dispose());
     this.pathMarkerMeshes.length = 0;
@@ -1098,6 +1112,7 @@ function truncateLabel(text: string, maxChars: number): string {
 
 function formatRoleLine(unit: Unit): string {
   const cls = capitalizeLabel(unit.unitClass);
-  const weapon = truncateLabel(unit.weapon.name, 26);
-  return `${cls} · ${weapon}`;
+  const weapon = truncateLabel(unit.weapon.name, 20);
+  const kills = unit.kills > 0 ? ` · ${unit.kills}K` : "";
+  return `${cls} · ${weapon}${kills}`;
 }

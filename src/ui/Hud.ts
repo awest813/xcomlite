@@ -255,7 +255,8 @@ export class Hud {
       this.statRow("AP", `${selectedUnit.actionPoints} / ${selectedUnit.maxActionPoints}`, ""),
       this.statRow("MP", `${selectedUnit.movementPoints} / ${selectedUnit.maxMovementPoints}`, ""),
       this.statRow("Mag", `${selectedUnit.weapon.ammo} / ${selectedUnit.weapon.clipSize}`, ""),
-      this.statRow("Will", `${selectedUnit.will} / ${selectedUnit.maxWill}`, "")
+      this.statRow("Will", `${selectedUnit.will} / ${selectedUnit.maxWill}`, ""),
+      this.statRow("Kills", String(selectedUnit.kills), "")
     );
 
     const kitTitle = document.createElement("div");
@@ -322,13 +323,13 @@ export class Hud {
     }
 
     if (this.battleState.currentTeam === "enemy") {
-      this.turnStrip.textContent = "Enemy activity";
+      this.turnStrip.textContent = `Turn ${this.battleState.turnNumber} — Enemy activity`;
       this.turnStrip.dataset.act = "enemy";
       this.phaseStrip.textContent = "Hostiles are resolving — watch the board.";
       return;
     }
 
-    this.turnStrip.textContent = "Your turn — Commander";
+    this.turnStrip.textContent = `Turn ${this.battleState.turnNumber} — Your move, Commander`;
     this.turnStrip.dataset.act = "player";
     this.phaseStrip.textContent = phaseRibbonCopy(this.battleState.phase);
   }
@@ -629,7 +630,8 @@ export class Hud {
 
         const stats = document.createElement("div");
         stats.className = "hud__unit-stats";
-        stats.textContent = `HP ${unit.hp}/${unit.maxHp} · MP ${unit.movementPoints}/${unit.maxMovementPoints} · Will ${unit.will}/${unit.maxWill}`;
+        const killsLabel = unit.kills > 0 ? ` · ${unit.kills}K` : "";
+        stats.textContent = `HP ${unit.hp}/${unit.maxHp} · MP ${unit.movementPoints}/${unit.maxMovementPoints} · Will ${unit.will}/${unit.maxWill}${killsLabel}`;
 
         button.append(top, barWrap, stats);
         this.roster.appendChild(button);
@@ -657,13 +659,28 @@ export class Hud {
       result === "victory" &&
       this.battleState.extractZone !== null;
 
-    const message =
+    const headline =
       result === "victory"
         ? extractWin
           ? "EXTRACTION COMPLETE — squad secured."
           : "ENGAGEMENT WON — sector clear."
         : "SQUAD LOST — mission abort.";
-    this.missionResultLabel.textContent = message;
+
+    const turns = this.battleState.turnNumber;
+    const survivors = this.battleState.units.filter((u) => u.team === "player");
+    const totalKills = survivors.reduce((sum, u) => sum + u.kills, 0);
+    const killerLines = survivors
+      .filter((u) => u.kills > 0)
+      .map((u) => `${u.name}: ${u.kills}K`)
+      .join(" · ");
+
+    const scoreLines = [
+      headline,
+      `Turns: ${turns} · Kills: ${totalKills} · Survivors: ${survivors.length}`,
+      killerLines || "No confirmed kills.",
+    ].join("  |  ");
+
+    this.missionResultLabel.textContent = scoreLines;
   }
 
   dispose(): void {

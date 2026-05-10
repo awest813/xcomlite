@@ -87,6 +87,7 @@ function createUnit(id: string, name: string, team: Unit["team"], position: Grid
     statusEffects: [],
     will: unitClass === "sniper" ? 40 : 50,
     maxWill: unitClass === "sniper" ? 40 : 50,
+    kills: 0,
   };
 }
 

@@ -94,6 +94,7 @@ export class BattleState {
   selectedAbility: Ability | null = null;
   /** Consumed by HUD as a one-shot toast message. */
   pendingFeedback: string | null = null;
+  turnNumber = 1;
 
   private readonly listeners = new Set<BattleStateListener>();
   private selectedMovementCache: PathfindingResult | null = null;
@@ -608,6 +609,7 @@ export class BattleState {
     };
 
     if (result.killed) {
+      shooter.kills += 1;
       this.removeUnit(target.id);
       this.checkPanicOnDeath(shooter);
     }
@@ -753,6 +755,7 @@ export class BattleState {
     this.processStatusEffects(this.currentTeam);
     this.recoverWill(this.currentTeam);
 
+    this.turnNumber += 1;
     this.currentTeam = this.currentTeam === "player" ? "enemy" : "player";
     this.selectedUnitId = null;
     this.selectedTargetUnitId = null;
@@ -876,6 +879,7 @@ export class BattleState {
     this.explosionEvents.length = 0;
     this.shotCounter = 0;
     this.pendingFeedback = null;
+    this.turnNumber = 1;
     this.notify();
   }
 
@@ -1072,6 +1076,14 @@ export class BattleState {
 
     const visibleTargets = this.getVisiblePlayerTargets(enemy, playerUnits);
 
+    // Try grenade throw when 2+ players are clustered within radius
+    if (visibleTargets.length >= 2 && enemy.actionPoints >= SHOOT_ACTION_POINT_COST) {
+      const grenadeResult = this.tryEnemyGrenadeThrow(enemy, playerUnits);
+      if (grenadeResult) {
+        return "continue";
+      }
+    }
+
     if (visibleTargets.length > 0 && enemy.actionPoints >= SHOOT_ACTION_POINT_COST) {
       if (enemy.weapon.ammo <= 0) {
         if (this.tryEnemyReload(enemy)) {
@@ -1093,6 +1105,54 @@ export class BattleState {
     }
 
     return "continue";
+  }
+
+  private tryEnemyGrenadeThrow(enemy: Unit, playerUnits: Unit[]): boolean {
+    const grenadeAbility = enemy.abilities.find((a) => a.type === "grenade" && a.uses > 0);
+    if (grenadeAbility === undefined || enemy.actionPoints < grenadeAbility.apCost) {
+      return false;
+    }
+
+    // Find a tile position that clusters 2+ visible players within grenade radius
+    const bestTarget = playerUnits
+      .map((anchor) => {
+        const playersInBlast = playerUnits.filter(
+          (p) => getManhattanDistance(anchor.position, p.position) <= GRENADE_RADIUS
+        );
+        return { position: anchor.position, count: playersInBlast.length };
+      })
+      .filter((t) => t.count >= 2)
+      .sort((a, b) => b.count - a.count)[0];
+
+    if (bestTarget === undefined) {
+      return false;
+    }
+
+    enemy.actionPoints -= grenadeAbility.apCost;
+    grenadeAbility.uses -= 1;
+    this.syncInventoryFromAbility(enemy, "grenade");
+
+    const result = this.createExplosion(
+      { x: bestTarget.position.x, y: bestTarget.position.y, elevation: bestTarget.position.elevation },
+      GRENADE_RADIUS,
+      GRENADE_DAMAGE
+    );
+    this.lastExplosionResult = result;
+    this.explosionEvents.push({
+      position: { x: bestTarget.position.x, y: bestTarget.position.y, elevation: bestTarget.position.elevation },
+      radius: GRENADE_RADIUS,
+      damage: GRENADE_DAMAGE,
+    });
+
+    // Award kills to the enemy for grenade kills
+    for (const hit of result.unitsHit) {
+      if (hit.killed) {
+        enemy.kills += 1;
+      }
+    }
+
+    this.notify();
+    return true;
   }
 
   private getVisiblePlayerTargets(enemy: Unit, playerUnits: Unit[]): TargetPreview[] {
@@ -1303,6 +1363,7 @@ export class BattleState {
           statusEffects: [],
           will: 50,
           maxWill: 50,
+          kills: 0,
         });
 
         if (sightline.visible) {
@@ -1428,6 +1489,7 @@ export class BattleState {
           statusEffects: [],
           will: 50,
           maxWill: 50,
+          kills: 0,
         });
         if (sightline.visible) {
           tile.fogState = "visible";

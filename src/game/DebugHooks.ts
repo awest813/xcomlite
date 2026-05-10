@@ -19,6 +19,7 @@ export function installDebugHooks(battleState: BattleState, scene: Scene, update
       coordinateSystem: "grid origin is top-left; x increases right; y increases down",
       currentTeam: battleState.currentTeam,
       phase: battleState.phase,
+      turnNumber: battleState.turnNumber,
       missionType: battleState.missionType,
       missionResult: battleState.missionResult,
       objective: battleState.mapLayout.objective,
@@ -79,6 +80,7 @@ export function installDebugHooks(battleState: BattleState, scene: Scene, update
         position: unit.position,
         weaponAmmo: unit.weapon.ammo,
         weaponClip: unit.weapon.clipSize,
+        kills: unit.kills,
         inventory: unit.inventory.map((item) => ({
           id: item.id,
           name: item.name,

@@ -97,4 +97,5 @@ export interface Unit {
   statusEffects: StatusEffectData[];
   will: number;
   maxWill: number;
+  kills: number;
 }
