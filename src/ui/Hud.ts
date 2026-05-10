@@ -23,6 +23,9 @@ export class Hud {
   private readonly endTurnButton: HTMLButtonElement;
   private readonly restartButton: HTMLButtonElement;
   private readonly actionsRow: HTMLDivElement;
+  private readonly reloadButton: HTMLButtonElement;
+  private readonly toastEl: HTMLDivElement;
+  private toastHideTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(private readonly battleState: BattleState) {
     this.root = document.createElement("div");
@@ -80,11 +83,16 @@ export class Hud {
     this.ordersLabel.className = "hud__orders";
     this.shortcutsHint = document.createElement("div");
     this.shortcutsHint.className = "hud__shortcuts";
-    this.shortcutsHint.textContent = "Keys: 1–3 squad · E end · F fire · O overwatch · R restart";
+    this.shortcutsHint.textContent =
+      "1–3 squad · L reload · E end turn · F fire · O overwatch · R restart mission";
     ordersSection.append(this.ordersLabel, this.shortcutsHint);
 
     this.actionsRow = document.createElement("div");
     this.actionsRow.className = "hud__actions";
+
+    this.reloadButton = this.makeActionButton("Reload", "L", ["hud__btn", "hud__btn--reload"], () =>
+      this.battleState.reloadWeapon()
+    );
 
     this.fireButton = this.makeActionButton("Fire", "F", ["hud__btn", "hud__btn--fire"], () =>
       this.battleState.fireAtSelectedTarget()
@@ -106,7 +114,7 @@ export class Hud {
     );
     this.restartButton.style.display = "none";
 
-    this.actionsRow.append(this.fireButton, this.overwatchButton, this.endTurnButton, this.restartButton);
+    this.actionsRow.append(this.reloadButton, this.fireButton, this.overwatchButton, this.endTurnButton, this.restartButton);
 
     this.root.append(
       this.missionResultLabel,
@@ -120,6 +128,10 @@ export class Hud {
       this.actionsRow
     );
     document.body.appendChild(this.root);
+
+    this.toastEl = document.createElement("div");
+    this.toastEl.className = "tactical-toast";
+    document.body.appendChild(this.toastEl);
 
     this.battleState.subscribe(() => this.render());
     this.render();
@@ -150,7 +162,24 @@ export class Hud {
     return button;
   }
 
+  private showTransientToast(message: string): void {
+    this.toastEl.textContent = message;
+    this.toastEl.classList.add("is-visible");
+    if (this.toastHideTimer !== null) {
+      window.clearTimeout(this.toastHideTimer);
+    }
+    this.toastHideTimer = window.setTimeout(() => {
+      this.toastEl.classList.remove("is-visible");
+      this.toastHideTimer = null;
+    }, 2700);
+  }
+
   private render(): void {
+    const feedback = this.battleState.popFeedback();
+    if (feedback !== undefined) {
+      this.showTransientToast(feedback);
+    }
+
     const theme = getTheme();
     this.operationTitle.textContent = theme.name;
     this.mapSubtitle.textContent = this.battleState.mapLayout.name;
@@ -197,6 +226,7 @@ export class Hud {
       this.statRow("HP", `${selectedUnit.hp} / ${selectedUnit.maxHp}`, hpBarLevel(selectedUnit.hp, selectedUnit.maxHp)),
       this.statRow("AP", `${selectedUnit.actionPoints} / ${selectedUnit.maxActionPoints}`, ""),
       this.statRow("MP", `${selectedUnit.movementPoints} / ${selectedUnit.maxMovementPoints}`, ""),
+      this.statRow("Mag", `${selectedUnit.weapon.ammo} / ${selectedUnit.weapon.clipSize}`, ""),
       this.statRow("Will", `${selectedUnit.will} / ${selectedUnit.maxWill}`, "")
     );
 
@@ -232,7 +262,7 @@ export class Hud {
         : this.battleState.phase === "grenade_aiming"
           ? "Click a tile to target, then press Throw."
           : this.battleState.phase === "aiming"
-            ? "Press Fire or use a squad ability. Click another enemy to switch targets."
+            ? "Press Fire when ready. Reload (L) if the mag is dry. Click another enemy to switch targets."
             : this.battleState.phase === "ability_select"
               ? "Select a target for the ability."
               : "Hover tiles for route preview. Click a highlighted tile to move, or a visible enemy to aim.";
@@ -240,10 +270,31 @@ export class Hud {
 
   private syncPrimaryActions(): void {
     const selectedUnit = this.battleState.selectedUnit;
+    const magDry =
+      selectedUnit !== undefined && selectedUnit.weapon.ammo <= 0 && this.battleState.phase === "aiming";
+
     this.fireButton.disabled =
-      selectedUnit === undefined || selectedUnit.actionPoints < 1 || this.battleState.aimPreview === null || this.battleState.phase !== "aiming";
+      selectedUnit === undefined ||
+      magDry ||
+      selectedUnit.actionPoints < 1 ||
+      this.battleState.aimPreview === null ||
+      this.battleState.phase !== "aiming";
+
+    const canReload =
+      selectedUnit !== undefined &&
+      this.battleState.currentTeam === "player" &&
+      this.battleState.missionResult === "in_progress" &&
+      (this.battleState.phase === "moving" || this.battleState.phase === "selecting") &&
+      selectedUnit.weapon.ammo < selectedUnit.weapon.clipSize &&
+      selectedUnit.actionPoints >= 1;
+
+    this.reloadButton.disabled = !canReload;
     this.overwatchButton.disabled =
-      selectedUnit === undefined || this.battleState.currentTeam !== "player" || selectedUnit.actionPoints < 1 || selectedUnit.isOverwatch;
+      selectedUnit === undefined ||
+      this.battleState.currentTeam !== "player" ||
+      selectedUnit.actionPoints < 1 ||
+      selectedUnit.isOverwatch ||
+      selectedUnit.weapon.ammo <= 0;
     this.endTurnButton.disabled = this.battleState.currentTeam !== "player";
   }
 
@@ -411,7 +462,13 @@ export class Hud {
       return;
     }
 
-    this.aimIntel.textContent = `${preview.targetName} · ${preview.hitChance}% to hit · ${getCoverPreviewLabel(preview.cover)} · ${capitalize(preview.rangeBand)} · ${preview.damage} dmg`;
+    const shooter = this.battleState.selectedUnit;
+    if (shooter !== undefined && shooter.weapon.ammo <= 0 && this.battleState.phase === "aiming") {
+      this.aimIntel.textContent = `${preview.targetName} · MAG EMPTY — Reload (L), ${preview.hitChance}% preview · ${getCoverPreviewLabel(preview.cover)} · ${capitalize(preview.rangeBand)} · ${preview.damage} dmg`;
+      return;
+    }
+
+    this.aimIntel.textContent = `${preview.targetName} · ${preview.hitChance}% to hit · ${getCoverPreviewLabel(preview.cover)} · ${capitalize(preview.rangeBand)} · ${preview.damage} dmg · mag ${shooter?.weapon.ammo ?? "—"}/${shooter?.weapon.clipSize ?? "—"}`;
   }
 
   private renderShotIntel(): void {
@@ -521,6 +578,10 @@ export class Hud {
   }
 
   dispose(): void {
+    if (this.toastHideTimer !== null) {
+      window.clearTimeout(this.toastHideTimer);
+    }
+    this.toastEl.remove();
     this.root.remove();
   }
 }

@@ -63,6 +63,7 @@ export interface ExplosionResult {
 }
 
 const SHOOT_ACTION_POINT_COST = 1;
+const RELOAD_ACTION_POINT_COST = 1;
 const OVERWATCH_HIT_PENALTY = 20;
 const SUPPRESSION_HIT_PENALTY = 30;
 const GRENADE_DAMAGE = 4;
@@ -91,6 +92,8 @@ export class BattleState {
   extractZone: GridPosition | null = { x: 9, y: 9, elevation: 0 };
   grenadeTargetTile: GridPosition | null = null;
   selectedAbility: Ability | null = null;
+  /** Consumed by HUD as a one-shot toast message. */
+  pendingFeedback: string | null = null;
 
   private readonly listeners = new Set<BattleStateListener>();
   private selectedMovementCache: PathfindingResult | null = null;
@@ -152,6 +155,7 @@ export class BattleState {
   previewAimAtUnit(targetUnitId: string): boolean {
     const preview = this.getAimPreviewForTarget(targetUnitId);
     if (preview === null || !preview.visible) {
+      this.pushFeedback("No shot — blocked or out of sight.");
       return false;
     }
 
@@ -197,14 +201,55 @@ export class BattleState {
   moveSelectedUnit(position: GridPosition): boolean {
     const unit = this.selectedUnit;
     if (unit === undefined || unit.team !== this.currentTeam || unit.actionPoints <= 0) {
+      this.pushFeedback("Cannot move right now.");
       return false;
     }
 
     if (this.phase !== "moving") {
+      this.pushFeedback("Cancel targeting to move.");
       return false;
     }
 
-    return this.moveUnit(unit, position);
+    const moved = this.moveUnit(unit, position);
+    if (!moved) {
+      this.pushFeedback("Unreachable tile.");
+    }
+    return moved;
+  }
+
+  reloadWeapon(): boolean {
+    if (this.missionResult !== "in_progress" || this.currentTeam !== "player") {
+      return false;
+    }
+
+    const unit = this.selectedUnit;
+    if (unit === undefined) {
+      this.pushFeedback("Select a soldier first.");
+      return false;
+    }
+
+    if (this.phase !== "moving" && this.phase !== "selecting") {
+      this.pushFeedback("Finish or cancel targeting before reloading.");
+      return false;
+    }
+
+    if (unit.weapon.ammo >= unit.weapon.clipSize) {
+      this.pushFeedback("Magazine is full.");
+      return false;
+    }
+
+    if (unit.actionPoints < RELOAD_ACTION_POINT_COST) {
+      this.pushFeedback("Need 1 AP to reload.");
+      return false;
+    }
+
+    unit.actionPoints -= RELOAD_ACTION_POINT_COST;
+    unit.weapon.ammo = unit.weapon.clipSize;
+    this.phase =
+      unit.movementPoints > 0 || unit.actionPoints > 0 ? "moving" : "selecting";
+    this.refreshSelectedMovementCache();
+    this.notify();
+    return true;
   }
 
   fireAtSelectedTarget(): ShotResult | null {
@@ -224,12 +269,33 @@ export class BattleState {
       return null;
     }
 
+    if (shooter.weapon.ammo <= 0) {
+      this.pushFeedback("Magazine empty — reload.");
+      return null;
+    }
+
     const origin = this.getPreviewOriginForSelectedUnit() ?? shooter.position;
     const result = this.resolveShot(shooter, preview.targetUnitId, origin);
-    this.selectedTargetUnitId = null;
-    this.phase = shooter.actionPoints > 0 ? "moving" : "selecting";
+    if (result !== null) {
+      this.selectedTargetUnitId = null;
+      this.phase = shooter.actionPoints > 0 ? "moving" : "selecting";
+    }
     this.notify();
     return result;
+  }
+
+  pushFeedback(message: string): void {
+    this.pendingFeedback = message;
+    this.notify();
+  }
+
+  popFeedback(): string | undefined {
+    if (this.pendingFeedback === null) {
+      return undefined;
+    }
+    const message = this.pendingFeedback;
+    this.pendingFeedback = null;
+    return message;
   }
 
   selectAbility(abilityType: AbilityType): boolean {
@@ -442,6 +508,11 @@ export class BattleState {
       return false;
     }
 
+    if (unit.weapon.ammo <= 0) {
+      this.pushFeedback("Magazine empty — reload before overwatch.");
+      return false;
+    }
+
     unit.actionPoints -= SHOOT_ACTION_POINT_COST;
     unit.isOverwatch = true;
     this.selectedTargetUnitId = null;
@@ -463,7 +534,12 @@ export class BattleState {
       return null;
     }
 
+    if (shooter.weapon.ammo <= 0) {
+      return null;
+    }
+
     shooter.actionPoints -= SHOOT_ACTION_POINT_COST;
+    shooter.weapon.ammo -= 1;
     return this.executeShot(shooter, target, preview.hitChance, preview.damage);
   }
 
@@ -759,6 +835,7 @@ export class BattleState {
     this.shotEvents.length = 0;
     this.explosionEvents.length = 0;
     this.shotCounter = 0;
+    this.pendingFeedback = null;
     this.notify();
   }
 
@@ -956,6 +1033,13 @@ export class BattleState {
     const visibleTargets = this.getVisiblePlayerTargets(enemy, playerUnits);
 
     if (visibleTargets.length > 0 && enemy.actionPoints >= SHOOT_ACTION_POINT_COST) {
+      if (enemy.weapon.ammo <= 0) {
+        if (this.tryEnemyReload(enemy)) {
+          this.notify();
+        }
+        return "continue";
+      }
+
       const flankedTargets = visibleTargets.filter((t) => t.flanked);
       const target = flankedTargets.length > 0 ? flankedTargets[0] : visibleTargets[0];
       return this.enemyShootAtTarget(enemy, target);
@@ -994,6 +1078,20 @@ export class BattleState {
       .filter((t): t is TargetPreview => t !== null);
   }
 
+  private tryEnemyReload(enemy: Unit): boolean {
+    if (enemy.weapon.ammo >= enemy.weapon.clipSize) {
+      return false;
+    }
+
+    if (enemy.actionPoints < RELOAD_ACTION_POINT_COST) {
+      return false;
+    }
+
+    enemy.actionPoints -= RELOAD_ACTION_POINT_COST;
+    enemy.weapon.ammo = enemy.weapon.clipSize;
+    return true;
+  }
+
   private enemyShootAtTarget(enemy: Unit, target: TargetPreview): "continue" | "done" {
     const targetUnit = this.units.find((u) => u.id === target.targetUnitId);
     if (targetUnit === undefined) {
@@ -1007,7 +1105,12 @@ export class BattleState {
     const shooterPos = { ...enemy.position };
     const targetPos = { ...targetUnit.position };
 
+    if (enemy.weapon.ammo <= 0) {
+      return "continue";
+    }
+
     enemy.actionPoints -= SHOOT_ACTION_POINT_COST;
+    enemy.weapon.ammo -= 1;
     const roll = this.rollShot();
     const hit = roll <= hitChance;
     const damage = hit ? enemy.weapon.damage : 0;
@@ -1117,11 +1220,19 @@ export class BattleState {
 
   private triggerOverwatchShots(movingUnit: Unit, path: GridPosition[]): void {
     const overwatchUnits = this.units.filter(
-      (u) => u.team !== movingUnit.team && u.isOverwatch && u.actionPoints >= SHOOT_ACTION_POINT_COST
+      (u) =>
+        u.team !== movingUnit.team &&
+        u.isOverwatch &&
+        u.actionPoints >= SHOOT_ACTION_POINT_COST &&
+        u.weapon.ammo > 0
     );
 
     const suppressionUnits = this.units.filter(
-      (u) => u.team !== movingUnit.team && u.isSuppressed && u.actionPoints >= SHOOT_ACTION_POINT_COST
+      (u) =>
+        u.team !== movingUnit.team &&
+        u.isSuppressed &&
+        u.actionPoints >= SHOOT_ACTION_POINT_COST &&
+        u.weapon.ammo > 0
     );
 
     for (const reactiveUnit of [...overwatchUnits, ...suppressionUnits]) {
@@ -1154,6 +1265,10 @@ export class BattleState {
         });
 
         if (sightline.visible) {
+          if (reactiveUnit.weapon.ammo <= 0) {
+            break;
+          }
+
           const coverDirection = getCoverDirectionTowardAttacker(reactiveUnit.position, movingUnit.position);
           const targetTile = getTile(this.grid, movingUnit.position);
           const cover = targetTile?.coverSides[coverDirection] ?? 0;
@@ -1164,6 +1279,7 @@ export class BattleState {
           const hitChance = Math.max(10, calculateHitChance(cover, flanked, rangeBand, reactiveUnit.weapon.aimBonus, false) - penalty);
 
           reactiveUnit.actionPoints -= SHOOT_ACTION_POINT_COST;
+          reactiveUnit.weapon.ammo -= 1;
           if (reactiveUnit.isOverwatch) {
             reactiveUnit.isOverwatch = false;
           }
