@@ -384,13 +384,13 @@ export class BattleState {
       return false;
     }
 
-    const ability = unit.abilities.find((a) => a.type === abilityType && a.uses > 0);
-    if (ability === undefined) {
+    if (isUnitIncapacitated(unit)) {
+      this.pushFeedback(getUnitActionLockMessage(unit));
       return false;
     }
 
-    if (isUnitIncapacitated(unit)) {
-      this.pushFeedback(getUnitActionLockMessage(unit));
+    const ability = unit.abilities.find((a) => a.type === abilityType && a.uses > 0);
+    if (ability === undefined) {
       return false;
     }
 
