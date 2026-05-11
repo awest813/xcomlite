@@ -1086,8 +1086,23 @@ export class BattleState {
         continue;
       }
 
-      const actionResult = this.runEnemyAction(enemy);
-      if (actionResult === "done") {
+      let actionCount = 0;
+      let missionEnded = false;
+      while (enemy.actionPoints > 0 && actionCount < 20) {
+        const beforeAction = this.getEnemyActionSnapshot(enemy);
+        const actionResult = this.runEnemyAction(enemy);
+        if (actionResult === "done") {
+          missionEnded = true;
+          break;
+        }
+
+        actionCount += 1;
+        if (!this.didEnemyStateChange(enemy, beforeAction)) {
+          break;
+        }
+      }
+
+      if (missionEnded || this.units.filter((u) => u.team === "player").length === 0) {
         break;
       }
     }
@@ -1111,6 +1126,37 @@ export class BattleState {
     this.checkMissionResult();
     this.notify();
     this.updateFogOfWar();
+  }
+
+  private getEnemyActionSnapshot(enemy: Unit): {
+    positionKey: string;
+    actionPoints: number;
+    movementPoints: number;
+    ammo: number;
+    grenadeUses: number;
+  } {
+    const grenadeAbility = enemy.abilities.find((ability) => ability.type === "grenade");
+    return {
+      positionKey: tileKey(enemy.position),
+      actionPoints: enemy.actionPoints,
+      movementPoints: enemy.movementPoints,
+      ammo: enemy.weapon.ammo,
+      grenadeUses: grenadeAbility?.uses ?? 0,
+    };
+  }
+
+  private didEnemyStateChange(
+    enemy: Unit,
+    before: { positionKey: string; actionPoints: number; movementPoints: number; ammo: number; grenadeUses: number }
+  ): boolean {
+    const grenadeAbility = enemy.abilities.find((ability) => ability.type === "grenade");
+    return (
+      tileKey(enemy.position) !== before.positionKey ||
+      enemy.actionPoints !== before.actionPoints ||
+      enemy.movementPoints !== before.movementPoints ||
+      enemy.weapon.ammo !== before.ammo ||
+      (grenadeAbility?.uses ?? 0) !== before.grenadeUses
+    );
   }
 
   private runEnemyAction(enemy: Unit): "continue" | "done" {
