@@ -287,3 +287,11 @@ The tactical combat framework now supports:
 - **Boosted emissive values**: Selection rings, path markers, enemy sight rings, and aimed target rings have slightly stronger emissive colors so the new `GlowLayer` produces a clearly visible halo without being overwhelming.
 - **Pipeline resilience**: The `DefaultRenderingPipeline` setup is wrapped in `try/catch` so the game continues gracefully if the pipeline is unavailable (e.g., WebGL1 fallback).
 - `npm run build` passes after Phase 14 changes.
+
+## Phase 15 Ally Ability Targeting (Medkit) Progress
+
+- Added `selectedAbilityTargetUnitId` to `BattleState` so ability-target selections are explicit and debuggable.
+- Clicking an ally while in `ability_select` now sets medkit target instead of switching unit selection.
+- Medkit now uses the selected ally target, enforces range 3, and gives feedback for invalid/full-health targets.
+- HUD now reflects medkit targeting flow (`Use Medkit → <ally>`) and disables the action until a valid injured ally is selected.
+- `render_game_to_text()` now includes `selectedAbilityType` and `selectedAbilityTargetUnitId` for browser verification.

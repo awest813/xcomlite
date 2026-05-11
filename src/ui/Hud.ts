@@ -342,11 +342,11 @@ export class Hud {
         ? "Select a soldier to plot movement."
         : this.battleState.phase === "grenade_aiming"
           ? "Click a tile to target, then Throw. Esc cancels."
-          : this.battleState.phase === "aiming"
-            ? "Press Fire or switch targets. Reload (L) if the mag is dry. Esc cancels aim."
-            : this.battleState.phase === "ability_select"
-              ? "Select a target for the ability. Esc cancels."
-              : "Hover tiles for route preview. Click a highlighted tile to move, or a visible enemy to aim.";
+        : this.battleState.phase === "aiming"
+          ? "Press Fire or switch targets. Reload (L) if the mag is dry. Esc cancels aim."
+        : this.battleState.phase === "ability_select"
+          ? "Click an ally to set medkit target, then Use Medkit. Esc cancels."
+          : "Hover tiles for route preview. Click a highlighted tile to move, or a visible enemy to aim.";
     this.ordersLabel.textContent = orders;
   }
 
@@ -437,14 +437,16 @@ export class Hud {
     if (this.battleState.phase === "ability_select") {
       const ability = this.battleState.selectedAbility;
       if (ability?.type === "medkit") {
+        const targetId = this.battleState.selectedAbilityTargetUnitId;
+        const target = targetId === null ? undefined : this.battleState.units.find((u) => u.id === targetId);
         const healButton = document.createElement("button");
         healButton.type = "button";
         healButton.className = "hud__btn hud__btn--ability hud__btn--heal";
-        healButton.textContent = "Use Medkit";
+        healButton.textContent = target === undefined ? "Use Medkit" : `Use Medkit → ${target.name}`;
+        healButton.disabled =
+          target === undefined || target.team !== "player" || target.hp >= target.maxHp;
         healButton.addEventListener("click", () => {
-          if (this.battleState.selectedUnitId) {
-            this.battleState.useMedkit(this.battleState.selectedUnitId);
-          }
+          this.battleState.useMedkit();
         });
         this.abilityPanel.appendChild(healButton);
       }
@@ -490,8 +492,12 @@ export class Hud {
 
     const hint = document.createElement("div");
     hint.className = "hud__intel-muted hud__hover-hint";
+    const medkitTargeting =
+      this.battleState.phase === "ability_select" && this.battleState.selectedAbility?.type === "medkit";
     hint.textContent =
-      unit.team === "enemy" && this.battleState.currentTeam === "player"
+      medkitTargeting && unit.team === "player"
+        ? "Click to set medkit target."
+        : unit.team === "enemy" && this.battleState.currentTeam === "player"
         ? "Click to preview aim."
         : unit.team === "player"
           ? "Click to select."

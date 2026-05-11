@@ -92,6 +92,7 @@ export class BattleState {
   extractZone: GridPosition | null;
   grenadeTargetTile: GridPosition | null = null;
   selectedAbility: Ability | null = null;
+  selectedAbilityTargetUnitId: string | null = null;
   /** Consumed by HUD as a one-shot toast message. */
   pendingFeedback: string | null = null;
   turnNumber = 1;
@@ -149,6 +150,7 @@ export class BattleState {
     this.selectedUnitId = unit.id;
     this.selectedTargetUnitId = null;
     this.selectedAbility = null;
+    this.selectedAbilityTargetUnitId = null;
     this.grenadeTargetTile = null;
     this.phase = "moving";
     this.refreshSelectedMovementCache();
@@ -164,6 +166,7 @@ export class BattleState {
 
     this.selectedTargetUnitId = targetUnitId;
     this.selectedAbility = null;
+    this.selectedAbilityTargetUnitId = null;
     this.grenadeTargetTile = null;
     this.hoveredTilePosition = null;
     this.hoveredUnitId = null;
@@ -182,6 +185,7 @@ export class BattleState {
       this.selectedTargetUnitId = null;
       this.hoveredTilePosition = null;
       this.hoveredUnitId = null;
+      this.selectedAbilityTargetUnitId = null;
       this.restoreMovementPhaseAfterCancel();
       return;
     }
@@ -190,6 +194,7 @@ export class BattleState {
       this.selectedAbility = null;
       this.grenadeTargetTile = null;
       this.selectedTargetUnitId = null;
+      this.selectedAbilityTargetUnitId = null;
       this.hoveredTilePosition = null;
       this.hoveredUnitId = null;
       this.restoreMovementPhaseAfterCancel();
@@ -223,6 +228,7 @@ export class BattleState {
     this.hoveredTilePosition = position === null ? null : { ...position };
     if (position !== null) {
       this.selectedTargetUnitId = null;
+      this.selectedAbilityTargetUnitId = null;
       if (this.selectedUnit !== undefined) {
         const throwTypes: AbilityType[] = ["grenade", "flashbang", "smoke"];
         this.phase = this.selectedAbility !== null && throwTypes.includes(this.selectedAbility.type)
@@ -346,6 +352,7 @@ export class BattleState {
 
     this.selectedAbility = ability;
     this.selectedTargetUnitId = null;
+    this.selectedAbilityTargetUnitId = null;
 
     if (abilityType === "grenade" || abilityType === "flashbang" || abilityType === "smoke") {
       this.phase = "grenade_aiming";
@@ -357,6 +364,29 @@ export class BattleState {
       return this.enterSuppression();
     }
 
+    this.notify();
+    return true;
+  }
+
+  selectAbilityTarget(unitId: string): boolean {
+    const actingUnit = this.selectedUnit;
+    const ability = this.selectedAbility;
+    if (
+      actingUnit === undefined ||
+      this.currentTeam !== "player" ||
+      this.phase !== "ability_select" ||
+      ability?.type !== "medkit"
+    ) {
+      return false;
+    }
+
+    const target = this.units.find((candidate) => candidate.id === unitId);
+    if (target === undefined || target.team !== actingUnit.team) {
+      this.pushFeedback("Medkit requires an ally target.");
+      return false;
+    }
+
+    this.selectedAbilityTargetUnitId = target.id;
     this.notify();
     return true;
   }
@@ -388,14 +418,16 @@ export class BattleState {
     this.explosionEvents.push({ position: { x: target.x, y: target.y, elevation: target.elevation }, radius: GRENADE_RADIUS, damage: GRENADE_DAMAGE });
 
     this.selectedAbility = null;
+    this.selectedAbilityTargetUnitId = null;
     this.phase = unit.actionPoints > 0 ? "moving" : "selecting";
     this.notify();
     return result;
   }
 
-  useMedkit(targetUnitId: string): boolean {
+  useMedkit(targetUnitId?: string): boolean {
     const unit = this.selectedUnit;
-    const target = this.units.find((u) => u.id === targetUnitId);
+    const resolvedTargetId = targetUnitId ?? this.selectedAbilityTargetUnitId ?? undefined;
+    const target = resolvedTargetId === undefined ? undefined : this.units.find((u) => u.id === resolvedTargetId);
 
     if (unit === undefined || target === undefined || this.selectedAbility === undefined) {
       return false;
@@ -415,7 +447,13 @@ export class BattleState {
       return false;
     }
 
+    if (getManhattanDistance(unit.position, target.position) > 3) {
+      this.pushFeedback("Target out of medkit range (3).");
+      return false;
+    }
+
     if (target.hp >= target.maxHp) {
+      this.pushFeedback("Target is already at full health.");
       return false;
     }
 
@@ -425,6 +463,7 @@ export class BattleState {
     target.hp = Math.min(target.maxHp, target.hp + MEDKIT_HEAL);
 
     this.selectedAbility = null;
+    this.selectedAbilityTargetUnitId = null;
     this.phase = unit.actionPoints > 0 ? "moving" : "selecting";
     this.notify();
     return true;
@@ -466,6 +505,7 @@ export class BattleState {
     this.explosionEvents.push({ position: { x: target.x, y: target.y, elevation: target.elevation }, radius: FLASHBANG_RADIUS, damage: 0 });
 
     this.selectedAbility = null;
+    this.selectedAbilityTargetUnitId = null;
     this.phase = unit.actionPoints > 0 ? "moving" : "selecting";
     this.notify();
     return this.lastExplosionResult;
@@ -506,6 +546,7 @@ export class BattleState {
     this.explosionEvents.push({ position: { x: target.x, y: target.y, elevation: target.elevation }, radius: SMOKE_RADIUS, damage: 0 });
 
     this.selectedAbility = null;
+    this.selectedAbilityTargetUnitId = null;
     this.phase = unit.actionPoints > 0 ? "moving" : "selecting";
     this.notify();
     return this.lastExplosionResult;
@@ -531,6 +572,7 @@ export class BattleState {
     unit.actionPoints -= ability.apCost;
     unit.isSuppressed = true;
     this.selectedAbility = null;
+    this.selectedAbilityTargetUnitId = null;
     this.phase = unit.actionPoints > 0 ? "moving" : "selecting";
     this.notify();
     return true;
@@ -556,6 +598,7 @@ export class BattleState {
     unit.isOverwatch = true;
     this.selectedTargetUnitId = null;
     this.selectedAbility = null;
+    this.selectedAbilityTargetUnitId = null;
     this.phase = unit.actionPoints > 0 ? "moving" : "selecting";
     this.notify();
     return true;
@@ -760,6 +803,7 @@ export class BattleState {
     this.selectedUnitId = null;
     this.selectedTargetUnitId = null;
     this.selectedAbility = null;
+    this.selectedAbilityTargetUnitId = null;
     this.grenadeTargetTile = null;
     this.selectedMovementCache = null;
     this.hoveredTilePosition = null;
@@ -863,6 +907,7 @@ export class BattleState {
     this.selectedUnitId = null;
     this.selectedTargetUnitId = null;
     this.selectedAbility = null;
+    this.selectedAbilityTargetUnitId = null;
     this.grenadeTargetTile = null;
     this.hoveredTilePosition = null;
     this.hoveredUnitId = null;
@@ -1059,6 +1104,7 @@ export class BattleState {
     this.selectedUnitId = null;
     this.selectedTargetUnitId = null;
     this.selectedAbility = null;
+    this.selectedAbilityTargetUnitId = null;
     this.grenadeTargetTile = null;
     this.selectedMovementCache = null;
     this.hoveredTilePosition = null;
@@ -1304,6 +1350,7 @@ export class BattleState {
     unit.movementPoints -= movementCost;
     this.selectedTargetUnitId = null;
     this.selectedAbility = null;
+    this.selectedAbilityTargetUnitId = null;
     this.refreshSelectedMovementCache();
 
     this.triggerOverwatchShots(unit, path);
