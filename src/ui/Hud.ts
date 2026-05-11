@@ -515,9 +515,12 @@ export class Hud {
       this.battleState.phase === "ability_select" && this.battleState.selectedAbility?.type === "medkit";
     const suppressionTargeting =
       this.battleState.phase === "ability_select" && this.battleState.selectedAbility?.type === "suppression";
+    const actionLockLabel = unitActionLockLabel(unit);
     hint.textContent =
       suppressionTargeting && unit.team === "enemy"
         ? unit.isSuppressed ? "Already suppressed." : "Click to select as suppression target."
+        : actionLockLabel !== null && unit.team === "player"
+        ? `${actionLockLabel === "STUNNED" ? "Stunned" : "Panicked"} — cannot act this turn.`
         : medkitTargeting && unit.team === "player"
         ? "Click to set medkit target."
         : unit.team === "enemy" && this.battleState.currentTeam === "player"
@@ -630,7 +633,7 @@ export class Hud {
         const button = document.createElement("button");
         button.type = "button";
         button.className = unit.id === this.battleState.selectedUnitId ? "hud__unit is-selected" : "hud__unit";
-        button.disabled = this.battleState.currentTeam !== "player";
+        button.disabled = this.battleState.currentTeam !== "player" || unitActionLockLabel(unit) !== null;
         button.addEventListener("click", () => this.battleState.selectUnit(unit.id));
 
         const top = document.createElement("div");
@@ -663,7 +666,10 @@ export class Hud {
         const stats = document.createElement("div");
         stats.className = "hud__unit-stats";
         const killsLabel = unit.kills > 0 ? ` · ${unit.kills}K` : "";
-        stats.textContent = `HP ${unit.hp}/${unit.maxHp} · MP ${unit.movementPoints}/${unit.maxMovementPoints} · Will ${unit.will}/${unit.maxWill}${killsLabel}`;
+        const actionLockLabel = unitActionLockLabel(unit);
+        stats.textContent =
+          `HP ${unit.hp}/${unit.maxHp} · MP ${unit.movementPoints}/${unit.maxMovementPoints} · Will ${unit.will}/${unit.maxWill}${killsLabel}` +
+          (actionLockLabel === null ? "" : ` · ${actionLockLabel}`);
 
         button.append(top, barWrap, stats);
         this.roster.appendChild(button);
@@ -751,6 +757,21 @@ function hpBarLevel(hp: number, maxHp: number): string {
   if (ratio >= 0.66) return "is-high";
   if (ratio >= 0.33) return "is-mid";
   return "is-low";
+}
+
+function unitActionLockLabel(unit: {
+  isPanicked: boolean;
+  statusEffects: { type: string }[];
+}): "PANICKED" | "STUNNED" | null {
+  if (unit.statusEffects.some((effect) => effect.type === "stunned")) {
+    return "STUNNED";
+  }
+
+  if (unit.isPanicked) {
+    return "PANICKED";
+  }
+
+  return null;
 }
 
 function phaseRibbonCopy(phase: BattlePhase): string {

@@ -166,6 +166,11 @@ export class BattleState {
       return;
     }
 
+    if (isUnitIncapacitated(unit)) {
+      this.pushFeedback(getUnitActionLockMessage(unit));
+      return;
+    }
+
     this.selectedUnitId = unit.id;
     this.selectedTargetUnitId = null;
     this.selectedAbility = null;
@@ -265,6 +270,11 @@ export class BattleState {
       return false;
     }
 
+    if (isUnitIncapacitated(unit)) {
+      this.pushFeedback(getUnitActionLockMessage(unit));
+      return false;
+    }
+
     if (this.phase !== "moving") {
       this.pushFeedback("Cancel targeting to move.");
       return false;
@@ -285,6 +295,11 @@ export class BattleState {
     const unit = this.selectedUnit;
     if (unit === undefined) {
       this.pushFeedback("Select a soldier first.");
+      return false;
+    }
+
+    if (isUnitIncapacitated(unit)) {
+      this.pushFeedback(getUnitActionLockMessage(unit));
       return false;
     }
 
@@ -322,6 +337,11 @@ export class BattleState {
       shooter.team !== this.currentTeam ||
       shooter.actionPoints < SHOOT_ACTION_POINT_COST
     ) {
+      return null;
+    }
+
+    if (isUnitIncapacitated(shooter)) {
+      this.pushFeedback(getUnitActionLockMessage(shooter));
       return null;
     }
 
@@ -366,6 +386,11 @@ export class BattleState {
 
     const ability = unit.abilities.find((a) => a.type === abilityType && a.uses > 0);
     if (ability === undefined) {
+      return false;
+    }
+
+    if (isUnitIncapacitated(unit)) {
+      this.pushFeedback(getUnitActionLockMessage(unit));
       return false;
     }
 
@@ -657,7 +682,8 @@ export class BattleState {
       unit === undefined ||
       unit.team !== this.currentTeam ||
       unit.actionPoints < SHOOT_ACTION_POINT_COST ||
-      unit.isOverwatch
+      unit.isOverwatch ||
+      isUnitIncapacitated(unit)
     ) {
       return false;
     }
@@ -727,7 +753,7 @@ export class BattleState {
     if (result.killed) {
       shooter.kills += 1;
       this.removeUnit(target.id);
-      this.checkPanicOnDeath(shooter);
+      this.checkPanicOnDeath(target);
     }
 
     this.lastShotResult = result;
@@ -739,6 +765,7 @@ export class BattleState {
   private createExplosion(position: GridPosition, radius: number, damage: number): ExplosionResult {
     const unitsInRange = this.getUnitsInRadius(position, radius);
     const unitsHit: { unitId: string; damage: number; killed: boolean }[] = [];
+    const fallenUnits: Unit[] = [];
 
     for (const unit of unitsInRange) {
       const distance = getManhattanDistance(position, unit.position);
@@ -752,11 +779,14 @@ export class BattleState {
 
         if (unit.hp === 0) {
           this.removeUnit(unit.id);
+          fallenUnits.push(unit);
         }
 
         unitsHit.push({ unitId: unit.id, damage: actualDamage, killed: unit.hp === 0 });
       }
     }
+
+    fallenUnits.forEach((unit) => this.checkPanicOnDeath(unit));
 
     return { position, radius, damage, unitsHit };
   }
@@ -791,7 +821,7 @@ export class BattleState {
       return;
     }
 
-    target.will -= PANIC_DAMAGE_WILL;
+    target.will = Math.max(0, target.will - PANIC_DAMAGE_WILL);
 
     if (target.will <= 0) {
       target.isPanicked = true;
@@ -799,12 +829,14 @@ export class BattleState {
     }
   }
 
-  private checkPanicOnDeath(shooter: Unit): void {
-    const allies = this.units.filter((u) => u.team !== shooter.team && !u.isPanicked);
+  private checkPanicOnDeath(casualty: Unit): void {
+    const allies = this.units.filter(
+      (u) => u.id !== casualty.id && u.team === casualty.team && !u.isPanicked
+    );
     for (const ally of allies) {
-      const distance = getManhattanDistance(shooter.position, ally.position);
+      const distance = getManhattanDistance(casualty.position, ally.position);
       if (distance <= 3) {
-        this.checkPanic(ally, shooter);
+        this.checkPanic(ally, casualty);
       }
     }
   }
@@ -894,6 +926,7 @@ export class BattleState {
     this.resetActionPoints(this.currentTeam);
     this.resetMovementPoints(this.currentTeam);
     this.clearOverwatch(this.currentTeam);
+    this.applyTurnStartActionLocks(this.currentTeam);
     this.decaySmokeClouds();
     // Do NOT clear enemy suppression here — it should persist through the enemy turn.
     this.checkMissionResult();
@@ -1040,6 +1073,15 @@ export class BattleState {
       .filter((unit) => unit.team === team)
       .forEach((unit) => {
         unit.movementPoints = unit.maxMovementPoints;
+      });
+  }
+
+  private applyTurnStartActionLocks(team: Team): void {
+    this.units
+      .filter((unit) => unit.team === team && isUnitIncapacitated(unit))
+      .forEach((unit) => {
+        unit.actionPoints = 0;
+        unit.movementPoints = 0;
       });
   }
 
@@ -1215,6 +1257,7 @@ export class BattleState {
     this.resetActionPoints("player");
     this.resetMovementPoints("player");
     this.clearOverwatch("player");
+    this.applyTurnStartActionLocks("player");
     this.decaySmokeClouds();
     this.phase = "selecting";
     this.selectedUnitId = null;
@@ -1438,7 +1481,7 @@ export class BattleState {
 
     if (result.killed) {
       this.removeUnit(targetUnit.id);
-      this.checkPanicOnDeath(enemy);
+      this.checkPanicOnDeath(targetUnit);
     }
 
     this.lastShotResult = result;
@@ -1476,7 +1519,12 @@ export class BattleState {
   }
 
   private moveUnit(unit: Unit, position: GridPosition, shouldNotify = true): boolean {
-    if (unit.team !== this.currentTeam || unit.actionPoints <= 0 || !this.canMoveUnitTo(unit, position)) {
+    if (
+      unit.team !== this.currentTeam ||
+      unit.actionPoints <= 0 ||
+      isUnitIncapacitated(unit) ||
+      !this.canMoveUnitTo(unit, position)
+    ) {
       return false;
     }
 
@@ -1764,6 +1812,26 @@ function getRangeBand(range: number): RangeBand {
   }
 
   return "long";
+}
+
+function hasStatusEffect(unit: Unit, type: StatusEffectData["type"]): boolean {
+  return unit.statusEffects.some((effect) => effect.type === type);
+}
+
+function isUnitIncapacitated(unit: Unit): boolean {
+  return unit.isPanicked || hasStatusEffect(unit, "stunned");
+}
+
+function getUnitActionLockMessage(unit: Unit): string {
+  if (hasStatusEffect(unit, "stunned")) {
+    return `${unit.name} is stunned and loses this turn.`;
+  }
+
+  if (unit.isPanicked) {
+    return `${unit.name} is panicked and cannot act this turn.`;
+  }
+
+  return `${unit.name} cannot act right now.`;
 }
 
 function calculateHitChance(
