@@ -214,10 +214,11 @@ export class TacticalScene {
       this.renderingPipeline.imageProcessingEnabled = true;
       this.renderingPipeline.imageProcessing.vignetteEnabled = true;
       this.renderingPipeline.imageProcessing.vignetteWeight = 3.2;
-      this.renderingPipeline.imageProcessing.vignetteColor = new Color4(0, 0, 0, 0);
+      this.renderingPipeline.imageProcessing.vignetteColor = new Color4(0, 0, 0, 1);
       this.renderingPipeline.imageProcessing.vignetteBlendMode = ImageProcessingConfiguration.VIGNETTEMODE_MULTIPLY;
-    } catch {
-      // Pipeline not supported in this context — continue without it
+    } catch (error) {
+      // Pipeline not supported in this context (e.g. WebGL1 fallback) — continue without it
+      console.warn("Rendering pipeline unavailable:", error);
       this.renderingPipeline = null;
     }
   }
