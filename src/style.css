@@ -1255,6 +1255,10 @@ button:focus-visible {
 
 /* Mission cards */
 .campaign-screen__mission-card {
+  display: block;
+  width: 100%;
+  text-align: left;
+  font: inherit;
   background: var(--bg-panel-inner);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius);
