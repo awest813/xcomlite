@@ -336,6 +336,7 @@ export class Hud {
 
   private renderOrders(): void {
     const selectedUnit = this.battleState.selectedUnit;
+    const abilityType = this.battleState.selectedAbility?.type;
 
     let orders =
       selectedUnit === undefined
@@ -344,6 +345,8 @@ export class Hud {
           ? "Click a tile to target, then Throw. Esc cancels."
         : this.battleState.phase === "aiming"
           ? "Press Fire or switch targets. Reload (L) if the mag is dry. Esc cancels aim."
+        : this.battleState.phase === "ability_select" && abilityType === "suppression"
+          ? "Click a visible enemy to suppress them (−30% accuracy this turn). Esc cancels."
         : this.battleState.phase === "ability_select"
           ? "Click an ally to set medkit target. Esc cancels."
           : "Hover tiles for route preview. Click a highlighted tile to move, or a visible enemy to aim.";
@@ -451,6 +454,20 @@ export class Hud {
           }
         });
         this.abilityPanel.appendChild(healButton);
+      } else if (ability?.type === "suppression") {
+        const targetId = this.battleState.selectedAbilityTargetUnitId;
+        const target = targetId === null ? undefined : this.battleState.units.find((u) => u.id === targetId);
+        const suppressButton = document.createElement("button");
+        suppressButton.type = "button";
+        suppressButton.className = "hud__btn hud__btn--ability hud__btn--suppress";
+        suppressButton.textContent = target === undefined ? "Suppress" : `Suppress → ${target.name}`;
+        suppressButton.disabled = target === undefined || target.team !== "enemy" || target.isSuppressed;
+        suppressButton.addEventListener("click", () => {
+          if (target !== undefined) {
+            this.battleState.suppressEnemy(target.id);
+          }
+        });
+        this.abilityPanel.appendChild(suppressButton);
       }
     }
   }
@@ -496,8 +513,12 @@ export class Hud {
     hint.className = "hud__intel-muted hud__hover-hint";
     const medkitTargeting =
       this.battleState.phase === "ability_select" && this.battleState.selectedAbility?.type === "medkit";
+    const suppressionTargeting =
+      this.battleState.phase === "ability_select" && this.battleState.selectedAbility?.type === "suppression";
     hint.textContent =
-      medkitTargeting && unit.team === "player"
+      suppressionTargeting && unit.team === "enemy"
+        ? unit.isSuppressed ? "Already suppressed." : "Click to select as suppression target."
+        : medkitTargeting && unit.team === "player"
         ? "Click to set medkit target."
         : unit.team === "enemy" && this.battleState.currentTeam === "player"
         ? "Click to preview aim."

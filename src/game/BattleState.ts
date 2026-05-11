@@ -73,7 +73,7 @@ interface EnemyActionSnapshot {
 const SHOOT_ACTION_POINT_COST = 1;
 const RELOAD_ACTION_POINT_COST = 1;
 const OVERWATCH_HIT_PENALTY = 20;
-const SUPPRESSION_HIT_PENALTY = 30;
+const SUPPRESSION_ACCURACY_PENALTY = 30;
 const GRENADE_DAMAGE = 4;
 const GRENADE_RADIUS = 2;
 const MEDKIT_HEAL = 3;
@@ -111,7 +111,6 @@ export class BattleState {
   private readonly movementEvents: MovementEvent[] = [];
   private readonly shotEvents: ShotEvent[] = [];
   private readonly explosionEvents: ExplosionEvent[] = [];
-  private shotCounter = 0;
 
   constructor(layout: MapLayout) {
     this.mapLayout = layout;
@@ -370,7 +369,7 @@ export class BattleState {
     } else if (abilityType === "overwatch") {
       return this.enterOverwatch();
     } else if (abilityType === "suppression") {
-      return this.enterSuppression();
+      this.phase = "ability_select";
     }
 
     this.notify();
@@ -384,8 +383,23 @@ export class BattleState {
       actingUnit === undefined ||
       this.currentTeam !== "player" ||
       this.phase !== "ability_select" ||
-      ability?.type !== "medkit"
+      ability === null
     ) {
+      return false;
+    }
+
+    if (ability.type === "suppression") {
+      const target = this.units.find((candidate) => candidate.id === unitId);
+      if (target === undefined || target.team === actingUnit.team) {
+        this.pushFeedback("Suppression requires an enemy target.");
+        return false;
+      }
+      this.selectedAbilityTargetUnitId = target.id;
+      this.notify();
+      return true;
+    }
+
+    if (ability.type !== "medkit") {
       return false;
     }
 
@@ -558,6 +572,49 @@ export class BattleState {
     this.phase = unit.actionPoints > 0 ? "moving" : "selecting";
     this.notify();
     return this.lastExplosionResult;
+  }
+
+  suppressEnemy(targetUnitId: string): boolean {
+    const unit = this.selectedUnit;
+    const target = this.units.find((u) => u.id === targetUnitId);
+
+    if (unit === undefined || target === undefined || this.selectedAbility === null) {
+      return false;
+    }
+
+    if (this.selectedAbility.type !== "suppression") {
+      return false;
+    }
+
+    if (target.team === unit.team) {
+      this.pushFeedback("Suppression must target an enemy.");
+      return false;
+    }
+
+    if (unit.actionPoints < this.selectedAbility.apCost) {
+      this.pushFeedback("Need 1 AP to suppress.");
+      return false;
+    }
+
+    const sightline = calculateSightline(this.grid, unit.position, target);
+    if (!sightline.visible) {
+      this.pushFeedback("Target must be in line of sight to suppress.");
+      return false;
+    }
+
+    if (target.isSuppressed) {
+      this.pushFeedback(`${target.name} is already suppressed.`);
+      return false;
+    }
+
+    unit.actionPoints -= this.selectedAbility.apCost;
+    target.isSuppressed = true;
+
+    this.selectedAbility = null;
+    this.selectedAbilityTargetUnitId = null;
+    this.phase = unit.actionPoints > 0 ? "moving" : "selecting";
+    this.notify();
+    return true;
   }
 
   enterSuppression(): boolean {
@@ -820,7 +877,7 @@ export class BattleState {
     this.resetActionPoints(this.currentTeam);
     this.resetMovementPoints(this.currentTeam);
     this.clearOverwatch(this.currentTeam);
-    this.clearSuppression(this.currentTeam);
+    // Do NOT clear enemy suppression here — it should persist through the enemy turn.
     this.checkMissionResult();
     this.notify();
     this.updateFogOfWar();
@@ -930,7 +987,6 @@ export class BattleState {
     this.movementEvents.length = 0;
     this.shotEvents.length = 0;
     this.explosionEvents.length = 0;
-    this.shotCounter = 0;
     this.pendingFeedback = null;
     this.turnNumber = 1;
     this.notify();
@@ -1127,11 +1183,11 @@ export class BattleState {
 
     this.processStatusEffects("enemy");
     this.recoverWill("enemy");
+    this.clearSuppression("enemy");
     this.currentTeam = "player";
     this.resetActionPoints("player");
     this.resetMovementPoints("player");
     this.clearOverwatch("player");
-    this.clearSuppression("player");
     this.phase = "selecting";
     this.selectedUnitId = null;
     this.selectedTargetUnitId = null;
@@ -1435,15 +1491,7 @@ export class BattleState {
         u.weapon.ammo > 0
     );
 
-    const suppressionUnits = this.units.filter(
-      (u) =>
-        u.team !== movingUnit.team &&
-        u.isSuppressed &&
-        u.actionPoints >= SHOOT_ACTION_POINT_COST &&
-        u.weapon.ammo > 0
-    );
-
-    for (const reactiveUnit of [...overwatchUnits, ...suppressionUnits]) {
+    for (const reactiveUnit of overwatchUnits) {
       let triggered = false;
       for (const step of path) {
         if (triggered) {
@@ -1485,14 +1533,11 @@ export class BattleState {
           const flanked = cover === 0;
           const range = getManhattanDistance(reactiveUnit.position, movingUnit.position);
           const rangeBand = getRangeBand(range);
-          const penalty = reactiveUnit.isSuppressed ? SUPPRESSION_HIT_PENALTY : OVERWATCH_HIT_PENALTY;
-          const hitChance = Math.max(10, calculateHitChance(cover, flanked, rangeBand, reactiveUnit.weapon.aimBonus, false) - penalty);
+          const hitChance = Math.max(10, calculateHitChance(cover, flanked, rangeBand, reactiveUnit.weapon.aimBonus, false) - OVERWATCH_HIT_PENALTY);
 
           reactiveUnit.actionPoints -= SHOOT_ACTION_POINT_COST;
           reactiveUnit.weapon.ammo -= 1;
-          if (reactiveUnit.isOverwatch) {
-            reactiveUnit.isOverwatch = false;
-          }
+          reactiveUnit.isOverwatch = false;
 
           this.executeShot(reactiveUnit, movingUnit, hitChance, reactiveUnit.weapon.damage);
           triggered = true;
@@ -1555,9 +1600,7 @@ export class BattleState {
   }
 
   private rollShot(): number {
-    const roll = ((this.shotCounter * 37 + 17) % 100) + 1;
-    this.shotCounter += 1;
-    return roll;
+    return Math.floor(Math.random() * 100) + 1;
   }
 
   private updateFogOfWar(): void {
@@ -1641,7 +1684,7 @@ function getRangeBand(range: number): RangeBand {
 function calculateHitChance(cover: number, flanked: boolean, rangeBand: RangeBand, aimBonus: number = 0, isSuppressed: boolean = false): number {
   const coverModifier = flanked ? 20 : cover === 1 ? -20 : cover >= 2 ? -40 : 0;
   const rangeModifier = rangeBand === "close" ? 10 : rangeBand === "long" ? -15 : 0;
-  const suppressionModifier = isSuppressed ? -20 : 0;
+  const suppressionModifier = isSuppressed ? -SUPPRESSION_ACCURACY_PENALTY : 0;
   return clamp(65 + coverModifier + rangeModifier + aimBonus + suppressionModifier, 10, 95);
 }
 
