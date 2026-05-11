@@ -884,10 +884,10 @@ export class TacticalScene {
     if (waypoints.length === 0) {
       return Vector3.Zero();
     }
-    if (waypoints.length === 1 || segmentLengths.length === 0) {
+    if (waypoints.length === 1) {
       return waypoints[0].clone();
     }
-    if (!segmentLengths.some((segmentLength) => segmentLength > 0)) {
+    if (segmentLengths.length === 0 || segmentLengths.every((segmentLength) => segmentLength <= 0)) {
       return waypoints[waypoints.length - 1].clone();
     }
 
