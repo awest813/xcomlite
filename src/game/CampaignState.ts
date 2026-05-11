@@ -14,15 +14,25 @@ export const CREDITS_PER_VICTORY = 100;
 /** XP total required to reach each level (index = level 1–5). */
 export const LEVEL_XP_THRESHOLDS: number[] = [0, 0, 150, 350, 600, 900];
 
+/** Maximum unit level. */
+const MAX_LEVEL = LEVEL_XP_THRESHOLDS.length - 1;
+/** Minimum level; all units start at level 1. */
+const MIN_LEVEL = 1;
+
+/** HP multiplier per level above 1. */
+const HP_BONUS_PER_LEVEL = 1.5;
+/** HP fraction at or below which a unit is considered injured after a mission. */
+export const INJURY_HP_THRESHOLD = 0.5;
+
 // ——— Level helpers ———
 
 export function getLevel(xp: number): number {
-  for (let l = 5; l >= 2; l--) {
+  for (let l = MAX_LEVEL; l >= MIN_LEVEL + 1; l--) {
     if (xp >= LEVEL_XP_THRESHOLDS[l]) {
       return l;
     }
   }
-  return 1;
+  return MIN_LEVEL;
 }
 
 export interface LevelBoosts {
@@ -33,7 +43,7 @@ export interface LevelBoosts {
 
 export function getLevelBoosts(level: number): LevelBoosts {
   return {
-    maxHpBonus: Math.floor((level - 1) * 1.5),
+    maxHpBonus: Math.floor((level - 1) * HP_BONUS_PER_LEVEL),
     aimBonus: (level - 1) * 5,
     maxApBonus: level >= 3 ? 1 : 0,
   };
@@ -42,8 +52,8 @@ export function getLevelBoosts(level: number): LevelBoosts {
 /** Returns progress toward the next level for display. */
 export function xpProgress(xp: number): { level: number; current: number; needed: number } {
   const level = getLevel(xp);
-  if (level >= 5) {
-    const cap = LEVEL_XP_THRESHOLDS[5];
+  if (level >= MAX_LEVEL) {
+    const cap = LEVEL_XP_THRESHOLDS[MAX_LEVEL];
     return { level, current: cap, needed: cap };
   }
   const floor = LEVEL_XP_THRESHOLDS[level];
@@ -109,7 +119,7 @@ export function applyBattleOutcome(campaign: Campaign, outcome: BattleOutcome): 
     const newXp = cu.xp + killXp + missionXp;
     const newLevel = getLevel(newXp);
 
-    const injured = uo.survived && uo.hpFraction <= 0.5;
+    const injured = uo.survived && uo.hpFraction <= INJURY_HP_THRESHOLD;
 
     return {
       ...cu,

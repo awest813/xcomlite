@@ -2,6 +2,9 @@ import { voidSovereignsTheme, type ThemeConfig } from "../data/BattleMap";
 import type { Ability, CampaignUnit, GridPosition, InventoryItem, Unit, WeaponProfile } from "./types";
 import { getLevelBoosts } from "./CampaignState";
 
+/** Minimum HP an injured unit can start a mission with. */
+const MIN_INJURED_HP = 1;
+
 let currentTheme: ThemeConfig = voidSovereignsTheme;
 
 const CONSUMABLE_INVENTORY_META: Partial<
@@ -112,7 +115,7 @@ export function createPlayerUnitsFromCampaign(campaignUnits: CampaignUnit[], sta
     const newMaxHp = base.maxHp + boosts.maxHpBonus;
     const newMaxAp = base.maxActionPoints + boosts.maxApBonus;
     const startHp = cu.isInjured
-      ? Math.max(1, Math.round(newMaxHp * cu.hpFraction))
+      ? Math.max(MIN_INJURED_HP, Math.round(newMaxHp * cu.hpFraction))
       : newMaxHp;
     return {
       ...base,

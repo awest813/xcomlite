@@ -7,6 +7,7 @@ import {
   clearCampaignSave,
   CREDITS_PER_KILL,
   CREDITS_PER_VICTORY,
+  INJURY_HP_THRESHOLD,
   loadCampaign,
   newCampaign,
   saveCampaign,
@@ -21,8 +22,11 @@ import { TurnController } from "./game/TurnController";
 import type { Campaign } from "./game/types";
 import type { TacticalScene } from "./render/TacticalScene";
 import { Hud } from "./ui/Hud";
-import { buildDebriefHtml, CampaignScreen } from "./ui/CampaignScreen";
+import { buildDebriefHtml, CampaignScreen, pluralize } from "./ui/CampaignScreen";
 import "./style.css";
+
+/** Milliseconds to display the in-battle result banner before returning to the campaign screen. */
+const DEBRIEF_DELAY_MS = 2500;
 
 setTheme(voidSovereignsTheme);
 
@@ -208,8 +212,8 @@ class App {
       }
       const killXp = uo.kills * XP_PER_KILL;
       const missionXp = uo.survived ? (victory ? XP_PER_MISSION_VICTORY : XP_PER_MISSION_DEFEAT) : 0;
-      const status = uo.survived ? (uo.hpFraction <= 0.5 ? "INJURED" : "OK") : "KIA";
-      return `${cu.name}: ${uo.kills} kill${uo.kills !== 1 ? "s" : ""} · +${killXp + missionXp} XP · ${status}`;
+      const status = uo.survived ? (uo.hpFraction <= INJURY_HP_THRESHOLD ? "INJURED" : "OK") : "KIA";
+      return `${cu.name}: ${uo.kills} ${pluralize(uo.kills, "kill")} · +${killXp + missionXp} XP · ${status}`;
     });
 
     this.campaign = applyBattleOutcome(this.campaign, outcome);
@@ -230,7 +234,7 @@ class App {
         return;
       }
       this.showCampaignScreen(debriefHtml);
-    }, 2500);
+    }, DEBRIEF_DELAY_MS);
   }
 }
 

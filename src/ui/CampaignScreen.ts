@@ -5,6 +5,11 @@ import { xpProgress } from "../game/CampaignState";
 
 export type LaunchMissionCallback = (layout: MapLayout) => void;
 
+/** Returns `singular` when count is 1, otherwise `plural` (defaults to `singular + "s"`). */
+export function pluralize(count: number, singular: string, plural = `${singular}s`): string {
+  return count === 1 ? singular : plural;
+}
+
 const CLASS_ICON: Record<string, string> = {
   assault: "⚔",
   support: "✚",
@@ -113,7 +118,7 @@ export class CampaignScreen {
     const xpLabel = level >= 5 ? "MAX" : `${current} / ${needed} XP`;
 
     const injuryBadge = cu.isInjured
-      ? `<span class="campaign-screen__badge campaign-screen__badge--injured">INJURED (${cu.injuryMissionsLeft} mission${cu.injuryMissionsLeft !== 1 ? "s" : ""})</span>`
+      ? `<span class="campaign-screen__badge campaign-screen__badge--injured">INJURED (${cu.injuryMissionsLeft} ${pluralize(cu.injuryMissionsLeft, "mission")})</span>`
       : "";
 
     card.innerHTML = `
