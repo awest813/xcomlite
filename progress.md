@@ -266,3 +266,24 @@ The tactical combat framework now supports:
 - Suppression visual: suppressed units display an orange torus ring at their base AND an orange emissive body tint that composites with the low-HP red tint (both effects can show simultaneously).
 - `render_game_to_text()` debug hook now includes `turnNumber` and per-unit `kills`.
 - `npm run build` passes after Phase 13 changes.
+
+## Phase 14 Babylon Assets, Audit, and Polish
+
+### Babylon Assets Added
+- **`GlowLayer`** (`@babylonjs/core`): All emissive materials (selection rings, path step pips, enemy sight rings, overwatch cones, suppression rings, extract zone tile, shot lines) now produce a visible glow halo in the 3D scene (`intensity = 0.48`, `blurKernelSize = 32`).
+- **`DefaultRenderingPipeline`** with bloom, chromatic aberration, and vignette: Bloom threshold 0.38 / weight 0.36 makes bright emissive areas bleed light into surrounding pixels, giving the battlefield a neon sci-fi atmosphere. Subtle chromatic aberration (1.8 px) and edge vignette add cinematic depth.
+- **`PointLight`** over the extract zone beacon: When the mission has an extract zone, a blue-tinted `PointLight` (range 5) illuminates the surrounding tiles. Its intensity pulses sinusoidally in the `update()` loop (0.9–1.8), giving the beacon a living, breathing quality.
+
+### Audit Fixes
+- **Static mesh leak on map switch**: Road stripe meshes, cover block meshes (per-direction and legacy), the extract zone tile mesh, and the starfield mesh were created but never tracked and therefore never disposed when `dispose()` was called between map loads. All are now pushed into a `staticMeshes: Mesh[]` array and disposed in `dispose()`.
+- **Untracked scene light**: The `HemisphericLight` was assigned to a local variable and lost. It is now stored in `this.sceneLight` and disposed on `dispose()`.
+- **Untracked extract zone point light**: Stored in `this.extractZoneLight` and disposed on `dispose()`.
+- **Untracked post-processing pipeline**: `DefaultRenderingPipeline` stored in `this.renderingPipeline` and disposed on `dispose()`.
+- **Untracked glow layer**: `GlowLayer` stored in `this.glowLayer` and disposed on `dispose()`.
+
+### Polish
+- **Overwatch cone rotation**: Active overwatch markers rotate slowly (0.9 rad/s) in the `update()` loop, making it visually clear a unit is in an active watch state.
+- **Extract zone beacon pulse**: The `PointLight` over the extraction point sinusoidally pulses its intensity each frame, reinforcing the extraction tile as a live tactical objective.
+- **Boosted emissive values**: Selection rings, path markers, enemy sight rings, and aimed target rings have slightly stronger emissive colors so the new `GlowLayer` produces a clearly visible halo without being overwhelming.
+- **Pipeline resilience**: The `DefaultRenderingPipeline` setup is wrapped in `try/catch` so the game continues gracefully if the pipeline is unavailable (e.g., WebGL1 fallback).
+- `npm run build` passes after Phase 14 changes.
