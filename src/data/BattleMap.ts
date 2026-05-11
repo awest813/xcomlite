@@ -41,6 +41,24 @@ export const voidSovereignsTheme: ThemeConfig = {
   missionBriefing: "Sovereign remnants are active in the sector. Eliminate all hostiles and secure the area.",
 };
 
+export const xcomStrikeTheme: ThemeConfig = {
+  name: "XCOM Strike Team",
+  playerUnitNames: ["Ranger", "Specialist", "Sharpshooter"],
+  enemyUnitNames: ["ADVENT Trooper", "ADVENT Officer", "ADVENT Sniper"],
+  mapName: "Operation Neon Dagger",
+  missionBriefing: "Eliminate hostile contacts and hold tactical control of the zone.",
+};
+
+export const xenonautsResponseTheme: ThemeConfig = {
+  name: "Xenonauts Response Team",
+  playerUnitNames: ["Rifleman", "Shield Operative", "Precision Marksman"],
+  enemyUnitNames: ["Sebillian Scout", "Caesan Rifleman", "Andron Drone"],
+  mapName: "Crash Site Recovery",
+  missionBriefing: "Secure alien technology and neutralize all surviving hostiles.",
+};
+
+export const tacticalThemes: ThemeConfig[] = [voidSovereignsTheme, xcomStrikeTheme, xenonautsResponseTheme];
+
 const stationSector7G: AuthoredTile[] = [
   { x: 0, y: 0, terrain: "rough", moveCost: 2 },
   { x: 1, y: 0, terrain: "rough", moveCost: 2 },
