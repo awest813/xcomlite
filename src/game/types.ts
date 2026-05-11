@@ -73,6 +73,7 @@ export interface Tile extends GridPosition {
   blocksSight: boolean;
   occupiedBy: string | null;
   destructible: boolean;
+  smokeTurns: number;
   fogState: FogState;
 }
 
