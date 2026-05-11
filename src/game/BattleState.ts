@@ -62,6 +62,14 @@ export interface ExplosionResult {
   unitsHit: { unitId: string; damage: number; killed: boolean }[];
 }
 
+interface EnemyActionSnapshot {
+  positionKey: string;
+  actionPoints: number;
+  movementPoints: number;
+  ammo: number;
+  grenadeUses: number;
+}
+
 const SHOOT_ACTION_POINT_COST = 1;
 const RELOAD_ACTION_POINT_COST = 1;
 const OVERWATCH_HIT_PENALTY = 20;
@@ -74,6 +82,7 @@ const FLASHBANG_DURATION = 1;
 const SMOKE_RADIUS = 2;
 const PANIC_DAMAGE_WILL = 10;
 const WILL_RECOVERY_PER_TURN = 5;
+const MAX_ACTIONS_PER_ENEMY_TURN = 20;
 
 export class BattleState {
   readonly grid: Tile[];
@@ -1088,7 +1097,7 @@ export class BattleState {
 
       let actionCount = 0;
       let missionEnded = false;
-      while (enemy.actionPoints > 0 && actionCount < 20) {
+      while (enemy.actionPoints > 0 && actionCount < MAX_ACTIONS_PER_ENEMY_TURN) {
         const beforeAction = this.getEnemyActionSnapshot(enemy);
         const actionResult = this.runEnemyAction(enemy);
         if (actionResult === "done") {
@@ -1128,13 +1137,7 @@ export class BattleState {
     this.updateFogOfWar();
   }
 
-  private getEnemyActionSnapshot(enemy: Unit): {
-    positionKey: string;
-    actionPoints: number;
-    movementPoints: number;
-    ammo: number;
-    grenadeUses: number;
-  } {
+  private getEnemyActionSnapshot(enemy: Unit): EnemyActionSnapshot {
     const grenadeAbility = enemy.abilities.find((ability) => ability.type === "grenade");
     return {
       positionKey: tileKey(enemy.position),
@@ -1147,7 +1150,7 @@ export class BattleState {
 
   private didEnemyStateChange(
     enemy: Unit,
-    before: { positionKey: string; actionPoints: number; movementPoints: number; ammo: number; grenadeUses: number }
+    before: EnemyActionSnapshot
   ): boolean {
     const grenadeAbility = enemy.abilities.find((ability) => ability.type === "grenade");
     return (
