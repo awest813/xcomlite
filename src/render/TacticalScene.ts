@@ -684,7 +684,7 @@ export class TacticalScene {
   }
 
   update(deltaMs: number): void {
-    this.movementTweenGroup.update();
+    this.movementTweenGroup.update(performance.now());
     this.startQueuedMovementAnimations();
     this.updateShotEffects(deltaMs);
     this.updateNameplateScales();
