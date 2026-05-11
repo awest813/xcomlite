@@ -643,6 +643,13 @@ export class TacticalScene {
           }
           return;
         }
+        if (this.battleState.phase === "ability_select" && this.battleState.selectedAbility?.type === "suppression") {
+          const targeted = this.battleState.selectAbilityTarget(metadata.unitId);
+          if (!targeted && unit !== undefined) {
+            this.flashInvalidTile(unit.position);
+          }
+          return;
+        }
         if (unit?.team === "enemy") {
           const aimed = this.battleState.previewAimAtUnit(metadata.unitId);
           if (!aimed) {

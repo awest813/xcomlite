@@ -295,3 +295,22 @@ The tactical combat framework now supports:
 - Medkit now uses the selected ally target, enforces range 3, and gives feedback for invalid/full-health targets.
 - HUD now reflects medkit targeting flow (`Use Medkit → <ally>`) and disables the action until a valid injured ally is selected.
 - `render_game_to_text()` now includes `selectedAbilityType` and `selectedAbilityTargetUnitId` for browser verification.
+
+## Phase 16 Gameplay Fixes
+
+### Suppression Bug (Critical Fix)
+- **Root cause**: `enterSuppression()` applied `isSuppressed = true` to the *acting player unit* instead of a target enemy. This meant the orange suppression ring appeared on the player's own soldier, and the -30% accuracy penalty applied to the player, not the enemy.
+- **Fix**: Suppression now enters `ability_select` phase (like Medkit). The player clicks a visible enemy to select them as the suppression target, then confirms via the "Suppress → <name>" button. Added `suppressEnemy(targetUnitId)` with LoS validation, enemy-only target check, and already-suppressed guard.
+- **Timing fix**: `endTurn()` was clearing enemy suppression *before* their turn, so enemies never suffered the accuracy penalty. Removed the `clearSuppression` call from `endTurn()`. Enemy suppression is now cleared at the end of the enemy turn in `runEnemyTurn()`.
+- **Suppression fire removed**: The `triggerOverwatchShots` function previously included suppressed units firing at movers, which was semantically backwards. Removed; overwatch fire is now the only reaction shot system.
+- **Constant renamed**: `SUPPRESSION_HIT_PENALTY` → `SUPPRESSION_ACCURACY_PENALTY` and wired into `calculateHitChance` to reduce suppressed enemies' hit chance by 30%.
+
+### Shot Roll Randomization
+- `rollShot()` previously used a deterministic sequence `((counter * 37 + 17) % 100) + 1` making every game play out identically. Changed to `Math.random()` for genuine tactical variance. The unused `shotCounter` field was removed.
+
+### HUD and Interaction Updates
+- Orders text for suppression targeting: "Click a visible enemy to suppress them (−30% accuracy this turn). Esc cancels."
+- `renderAbilityButtons()` shows "Suppress → <name>" confirm button with disabled state when target is already suppressed or invalid.
+- Hover hint over enemies now reads "Click to select as suppression target." during suppression mode.
+- `handlePickedMesh` in TacticalScene routes enemy clicks to `selectAbilityTarget` during suppression `ability_select` phase.
+- `npm run build` passes after Phase 16 changes.
