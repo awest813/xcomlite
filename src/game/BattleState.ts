@@ -2,6 +2,22 @@ import { buildGrid, getNeighbors, getTile } from "./Grid";
 import { calculateSightline, type Sightline } from "./LineOfSight";
 import { calculateMovement, getPath, tileKey, type PathfindingResult } from "./Pathfinding";
 import { createEnemyUnits, createPlayerUnits } from "./Units";
+import {
+  calculateHitChance,
+  getCoverDirectionTowardAttacker,
+  getManhattanDistance,
+  getRangeBand,
+  getUnitActionLockMessage,
+  isUnitIncapacitated,
+  GRENADE_DAMAGE,
+  GRENADE_RADIUS,
+  OVERWATCH_HIT_PENALTY,
+  RELOAD_ACTION_POINT_COST,
+  SHOOT_ACTION_POINT_COST,
+  SMOKE_HIT_PENALTY,
+  type RangeBand,
+} from "./CombatUtils";
+import { EnemyAI } from "./EnemyAI";
 import type { MapLayout } from "../data/BattleMap";
 import type { Ability, AbilityType, BattlePhase, CoverDirection, GridPosition, MissionResult, MissionType, StatusEffectData, Team, Tile, Unit } from "./types";
 
@@ -33,7 +49,7 @@ export interface TargetPreview {
   smokeObscured: boolean;
 }
 
-export type RangeBand = "close" | "normal" | "long";
+export type { RangeBand } from "./CombatUtils";
 
 export interface AimPreview extends TargetPreview {
   shooterUnitId: string;
@@ -63,37 +79,13 @@ export interface ExplosionResult {
   unitsHit: { unitId: string; damage: number; killed: boolean }[];
 }
 
-interface EnemyActionSnapshot {
-  positionKey: string;
-  actionPoints: number;
-  movementPoints: number;
-  ammo: number;
-  grenadeUses: number;
-}
-
-const SHOOT_ACTION_POINT_COST = 1;
-const RELOAD_ACTION_POINT_COST = 1;
-const OVERWATCH_HIT_PENALTY = 20;
-const SUPPRESSION_ACCURACY_PENALTY = 30;
-const GRENADE_DAMAGE = 4;
-const GRENADE_RADIUS = 2;
 const MEDKIT_HEAL = 3;
 const FLASHBANG_RADIUS = 2;
 const FLASHBANG_DURATION = 1;
 const SMOKE_RADIUS = 2;
 const SMOKE_DURATION = 2;
-const SMOKE_HIT_PENALTY = 25;
 const PANIC_DAMAGE_WILL = 10;
 const WILL_RECOVERY_PER_TURN = 5;
-const MAX_ACTIONS_PER_ENEMY_TURN = 20;
-const FLANKED_TARGET_SCORE_BONUS = 24;
-const SMOKE_SHOT_SCORE_PENALTY = 8;
-const COVER_POSITION_SCORE_MULTIPLIER = 12;
-const SMOKE_POSITION_SCORE_BONUS = 8;
-const VISIBLE_TARGET_POSITION_SCORE = 140;
-const EXTRA_VISIBLE_TARGET_SCORE = 10;
-const APPROACH_POSITION_SCORE = 40;
-const APPROACH_DISTANCE_SCORE_MULTIPLIER = 6;
 
 export class BattleState {
   readonly grid: Tile[];
@@ -650,32 +642,6 @@ export class BattleState {
     return true;
   }
 
-  enterSuppression(): boolean {
-    const unit = this.selectedUnit;
-
-    if (unit === undefined || this.selectedAbility === undefined) {
-      return false;
-    }
-
-    const ability = this.selectedAbility!;
-
-    if (ability.type !== "suppression") {
-      return false;
-    }
-
-    if (unit.actionPoints < ability.apCost) {
-      return false;
-    }
-
-    unit.actionPoints -= ability.apCost;
-    unit.isSuppressed = true;
-    this.selectedAbility = null;
-    this.selectedAbilityTargetUnitId = null;
-    this.phase = unit.actionPoints > 0 ? "moving" : "selecting";
-    this.notify();
-    return true;
-  }
-
   enterOverwatch(): boolean {
     const unit = this.selectedUnit;
     if (
@@ -724,7 +690,8 @@ export class BattleState {
     return this.executeShot(shooter, target, preview.hitChance, preview.damage);
   }
 
-  private executeShot(shooter: Unit, target: Unit, hitChance: number, weaponDamage: number): ShotResult {
+  /** @internal Used by EnemyAI. */
+  executeShot(shooter: Unit, target: Unit, hitChance: number, weaponDamage: number): ShotResult {
     const shooterPos = { ...shooter.position };
     const targetPos = { ...target.position };
 
@@ -762,7 +729,8 @@ export class BattleState {
     return result;
   }
 
-  private createExplosion(position: GridPosition, radius: number, damage: number): ExplosionResult {
+  /** @internal Used by EnemyAI. */
+  createExplosion(position: GridPosition, radius: number, damage: number): ExplosionResult {
     const unitsInRange = this.getUnitsInRadius(position, radius);
     const unitsHit: { unitId: string; damage: number; killed: boolean }[] = [];
     const fallenUnits: Unit[] = [];
@@ -1209,46 +1177,7 @@ export class BattleState {
       return;
     }
 
-    const enemyUnits = this.units.filter((unit) => unit.team === "enemy");
-
-    for (const enemy of enemyUnits) {
-      if (!this.units.some((u) => u.id === enemy.id)) {
-        continue;
-      }
-
-      if (enemy.statusEffects.some((e) => e.type === "stunned")) {
-        continue;
-      }
-
-      let actionCount = 0;
-      let missionEnded = false;
-      while (enemy.actionPoints > 0 && actionCount < MAX_ACTIONS_PER_ENEMY_TURN) {
-        if (!this.units.some((u) => u.id === enemy.id)) {
-          break;
-        }
-
-        const beforeAction = this.getEnemyActionSnapshot(enemy);
-        const actionResult = this.runEnemyAction(enemy);
-        if (actionResult === "done") {
-          missionEnded = true;
-          break;
-        }
-
-        if (!this.units.some((u) => u.id === enemy.id)) {
-          break;
-        }
-
-        if (!this.didEnemyStateChange(enemy, beforeAction)) {
-          break;
-        }
-
-        actionCount += 1;
-      }
-
-      if (missionEnded || !this.hasPlayerUnitsRemaining()) {
-        break;
-      }
-    }
+    new EnemyAI(this).run();
 
     this.processStatusEffects("enemy");
     this.recoverWill("enemy");
@@ -1273,252 +1202,8 @@ export class BattleState {
     this.updateFogOfWar();
   }
 
-  private getEnemyActionSnapshot(enemy: Unit): EnemyActionSnapshot {
-    const grenadeAbility = enemy.abilities.find((ability) => ability.type === "grenade");
-    return {
-      positionKey: tileKey(enemy.position),
-      actionPoints: enemy.actionPoints,
-      movementPoints: enemy.movementPoints,
-      ammo: enemy.weapon.ammo,
-      grenadeUses: grenadeAbility?.uses ?? 0,
-    };
-  }
-
-  private didEnemyStateChange(
-    enemy: Unit,
-    before: EnemyActionSnapshot
-  ): boolean {
-    const grenadeAbility = enemy.abilities.find((ability) => ability.type === "grenade");
-    return (
-      tileKey(enemy.position) !== before.positionKey ||
-      enemy.actionPoints !== before.actionPoints ||
-      enemy.movementPoints !== before.movementPoints ||
-      enemy.weapon.ammo !== before.ammo ||
-      (grenadeAbility?.uses ?? 0) !== before.grenadeUses
-    );
-  }
-
-  private hasPlayerUnitsRemaining(): boolean {
-    return this.units.some((unit) => unit.team === "player");
-  }
-
-  private runEnemyAction(enemy: Unit): "continue" | "done" {
-    const playerUnits = this.units.filter((unit) => unit.team === "player");
-    if (playerUnits.length === 0) {
-      return "done";
-    }
-
-    const visibleTargets = this.getVisiblePlayerTargets(enemy, playerUnits);
-
-    // Try grenade throw when 2+ players are clustered within radius
-    if (visibleTargets.length >= 2 && enemy.actionPoints >= SHOOT_ACTION_POINT_COST) {
-      const grenadeResult = this.tryEnemyGrenadeThrow(enemy, playerUnits);
-      if (grenadeResult) {
-        return "continue";
-      }
-    }
-
-    if (visibleTargets.length > 0 && enemy.actionPoints >= SHOOT_ACTION_POINT_COST) {
-      if (enemy.weapon.ammo <= 0) {
-        if (this.tryEnemyReload(enemy)) {
-          this.notify();
-        }
-        return "continue";
-      }
-
-      const flankedTargets = visibleTargets.filter((t) => t.flanked);
-      const target = flankedTargets.length > 0 ? flankedTargets[0] : visibleTargets[0];
-      return this.enemyShootAtTarget(enemy, target);
-    }
-
-    if (enemy.actionPoints > 0) {
-      const moveResult = this.enemyMoveToBetterPosition(enemy, playerUnits, visibleTargets);
-      if (moveResult) {
-        return "continue";
-      }
-    }
-
-    return "continue";
-  }
-
-  private tryEnemyGrenadeThrow(enemy: Unit, playerUnits: Unit[]): boolean {
-    const grenadeAbility = enemy.abilities.find((a) => a.type === "grenade" && a.uses > 0);
-    if (grenadeAbility === undefined || enemy.actionPoints < grenadeAbility.apCost) {
-      return false;
-    }
-
-    // Find a tile position that clusters 2+ visible players within grenade radius
-    const bestTarget = playerUnits
-      .map((anchor) => {
-        const playersInBlast = playerUnits.filter(
-          (p) => getManhattanDistance(anchor.position, p.position) <= GRENADE_RADIUS
-        );
-        return { position: anchor.position, count: playersInBlast.length };
-      })
-      .filter((t) => t.count >= 2)
-      .sort((a, b) => b.count - a.count)[0];
-
-    if (bestTarget === undefined) {
-      return false;
-    }
-
-    enemy.actionPoints -= grenadeAbility.apCost;
-    grenadeAbility.uses -= 1;
-    this.syncInventoryFromAbility(enemy, "grenade");
-
-    const result = this.createExplosion(
-      { x: bestTarget.position.x, y: bestTarget.position.y, elevation: bestTarget.position.elevation },
-      GRENADE_RADIUS,
-      GRENADE_DAMAGE
-    );
-    this.lastExplosionResult = result;
-    this.explosionEvents.push({
-      position: { x: bestTarget.position.x, y: bestTarget.position.y, elevation: bestTarget.position.elevation },
-      radius: GRENADE_RADIUS,
-      damage: GRENADE_DAMAGE,
-    });
-
-    // Award kills to the enemy for grenade kills
-    for (const hit of result.unitsHit) {
-      if (hit.killed) {
-        enemy.kills += 1;
-      }
-    }
-
-    this.notify();
-    return true;
-  }
-
-  private getVisiblePlayerTargets(enemy: Unit, playerUnits: Unit[]): TargetPreview[] {
-    return this.getVisiblePlayerTargetsFromPosition(enemy.position, playerUnits);
-  }
-
-  private getVisiblePlayerTargetsFromPosition(fromPosition: GridPosition, playerUnits: Unit[]): TargetPreview[] {
-    return playerUnits
-      .map((target) => {
-        const sightline = calculateSightline(this.grid, fromPosition, target);
-        if (!sightline.visible) {
-          return null;
-        }
-
-        const coverDirection = getCoverDirectionTowardAttacker(fromPosition, target.position);
-        const targetTile = getTile(this.grid, target.position);
-        const cover = targetTile?.coverSides[coverDirection] ?? 0;
-
-        return {
-          targetUnitId: target.id,
-          visible: true,
-          coverDirection,
-          cover,
-          flanked: cover === 0,
-          smokeObscured: this.isSightlineObscured(sightline),
-        };
-      })
-      .filter((t): t is TargetPreview => t !== null);
-  }
-
-  private tryEnemyReload(enemy: Unit): boolean {
-    if (enemy.weapon.ammo >= enemy.weapon.clipSize) {
-      return false;
-    }
-
-    if (enemy.actionPoints < RELOAD_ACTION_POINT_COST) {
-      return false;
-    }
-
-    enemy.actionPoints -= RELOAD_ACTION_POINT_COST;
-    enemy.weapon.ammo = enemy.weapon.clipSize;
-    return true;
-  }
-
-  private enemyShootAtTarget(enemy: Unit, target: TargetPreview): "continue" | "done" {
-    const targetUnit = this.units.find((u) => u.id === target.targetUnitId);
-    if (targetUnit === undefined) {
-      return "continue";
-    }
-
-    const range = getManhattanDistance(enemy.position, targetUnit.position);
-    const rangeBand = getRangeBand(range);
-    const hitChance = calculateHitChance(
-      target.cover,
-      target.flanked,
-      rangeBand,
-      enemy.weapon.aimBonus,
-      enemy.isSuppressed,
-      target.smokeObscured ? SMOKE_HIT_PENALTY : 0
-    );
-
-    const shooterPos = { ...enemy.position };
-    const targetPos = { ...targetUnit.position };
-
-    if (enemy.weapon.ammo <= 0) {
-      return "continue";
-    }
-
-    enemy.actionPoints -= SHOOT_ACTION_POINT_COST;
-    enemy.weapon.ammo -= 1;
-    const roll = this.rollShot();
-    const hit = roll <= hitChance;
-    const damage = hit ? enemy.weapon.damage : 0;
-
-    if (hit) {
-      targetUnit.hp = Math.max(0, targetUnit.hp - damage);
-      this.damageCoverAt(targetUnit.position);
-      this.checkPanic(targetUnit, enemy);
-    }
-
-    const result: ShotResult = {
-      shooterUnitId: enemy.id,
-      targetUnitId: targetUnit.id,
-      targetName: targetUnit.name,
-      hitChance,
-      roll,
-      hit,
-      damage,
-      killed: targetUnit.hp === 0,
-      targetHp: targetUnit.hp,
-    };
-
-    if (result.killed) {
-      this.removeUnit(targetUnit.id);
-      this.checkPanicOnDeath(targetUnit);
-    }
-
-    this.lastShotResult = result;
-    this.shotEvents.push({ shooterPosition: shooterPos, targetPosition: targetPos, hit: result.hit });
-    this.notify();
-
-    if (this.units.filter((u) => u.team === "player").length === 0) {
-      return "done";
-    }
-
-    return "continue";
-  }
-
-  private enemyMoveToBetterPosition(enemy: Unit, playerUnits: Unit[], visibleTargets: TargetPreview[]): boolean {
-    if (playerUnits.length === 0) {
-      return false;
-    }
-
-    if (visibleTargets.length > 0 && enemy.actionPoints >= SHOOT_ACTION_POINT_COST) {
-      return false;
-    }
-
-    const movement = this.getMovementForUnit(enemy);
-    const currentScore = this.scoreEnemyPosition(enemy, enemy.position, playerUnits);
-    const bestTile = movement.reachableTiles
-      .map((tile) => ({ tile, score: this.scoreEnemyPosition(enemy, tile, playerUnits) }))
-      .sort((a, b) => b.score - a.score)[0];
-
-    if (bestTile === undefined || bestTile.score <= currentScore) {
-      return false;
-    }
-
-    this.moveUnit(enemy, { x: bestTile.tile.x, y: bestTile.tile.y, elevation: bestTile.tile.elevation }, true);
-    return true;
-  }
-
-  private moveUnit(unit: Unit, position: GridPosition, shouldNotify = true): boolean {
+  /** @internal Used by EnemyAI. */
+  moveUnit(unit: Unit, position: GridPosition, shouldNotify = true): boolean {
     if (
       unit.team !== this.currentTeam ||
       unit.actionPoints <= 0 ||
@@ -1641,7 +1326,8 @@ export class BattleState {
     return calculateMovement(this.grid, unit);
   }
 
-  private syncInventoryFromAbility(unit: Unit, abilityType: AbilityType): void {
+  /** @internal Used by EnemyAI. */
+  syncInventoryFromAbility(unit: Unit, abilityType: AbilityType): void {
     const ability = unit.abilities.find((a) => a.type === abilityType);
     const entry = unit.inventory.find((i) => i.linkedAbility === abilityType);
     if (ability !== undefined && entry !== undefined) {
@@ -1696,44 +1382,9 @@ export class BattleState {
     return sightline.path.some((position, index) => index > 0 && (getTile(this.grid, position)?.smokeTurns ?? 0) > 0);
   }
 
-  private scoreEnemyPosition(enemy: Unit, position: GridPosition, playerUnits: Unit[]): number {
-    const tile = getTile(this.grid, position);
-    const visibleTargets = this.getVisiblePlayerTargetsFromPosition(position, playerUnits);
-    const bestShotScore = visibleTargets.reduce((best, target) => {
-      const targetUnit = playerUnits.find((unit) => unit.id === target.targetUnitId);
-      if (targetUnit === undefined) {
-        return best;
-      }
-
-      const range = getManhattanDistance(position, targetUnit.position);
-      const hitChance = calculateHitChance(
-        target.cover,
-        target.flanked,
-        getRangeBand(range),
-        enemy.weapon.aimBonus,
-        enemy.isSuppressed,
-        target.smokeObscured ? SMOKE_HIT_PENALTY : 0
-      );
-      const score =
-        hitChance +
-        (target.flanked ? FLANKED_TARGET_SCORE_BONUS : 0) -
-        (target.smokeObscured ? SMOKE_SHOT_SCORE_PENALTY : 0);
-      return Math.max(best, score);
-    }, Number.NEGATIVE_INFINITY);
-    const nearestDistance = playerUnits.reduce(
-      (best, player) => Math.min(best, getManhattanDistance(position, player.position)),
-      Number.POSITIVE_INFINITY
-    );
-    const moveTax = getManhattanDistance(enemy.position, position);
-    const coverScore =
-      (tile?.cover ?? 0) * COVER_POSITION_SCORE_MULTIPLIER +
-      ((tile?.smokeTurns ?? 0) > 0 ? SMOKE_POSITION_SCORE_BONUS : 0);
-    const visibilityScore =
-      visibleTargets.length > 0
-        ? VISIBLE_TARGET_POSITION_SCORE + bestShotScore + Math.min(visibleTargets.length, 2) * EXTRA_VISIBLE_TARGET_SCORE
-        : Math.max(0, APPROACH_POSITION_SCORE - nearestDistance * APPROACH_DISTANCE_SCORE_MULTIPLIER);
-
-    return visibilityScore + coverScore - moveTax;
+  /** @internal Used by EnemyAI to record an explosion in the event queue. */
+  addExplosionEvent(event: ExplosionEvent): void {
+    this.explosionEvents.push(event);
   }
 
   private updateFogOfWar(): void {
@@ -1782,72 +1433,8 @@ export class BattleState {
     }
   }
 
-  private notify(): void {
+  /** @internal Used by EnemyAI. */
+  notify(): void {
     this.listeners.forEach((listener) => listener());
   }
-}
-
-function getManhattanDistance(from: GridPosition, to: GridPosition): number {
-  return Math.abs(from.x - to.x) + Math.abs(from.y - to.y);
-}
-
-function getCoverDirectionTowardAttacker(attacker: GridPosition, target: GridPosition): CoverDirection {
-  const deltaX = attacker.x - target.x;
-  const deltaY = attacker.y - target.y;
-
-  if (Math.abs(deltaX) >= Math.abs(deltaY)) {
-    return deltaX < 0 ? "west" : "east";
-  }
-
-  return deltaY < 0 ? "north" : "south";
-}
-
-function getRangeBand(range: number): RangeBand {
-  if (range <= 4) {
-    return "close";
-  }
-
-  if (range <= 7) {
-    return "normal";
-  }
-
-  return "long";
-}
-
-function hasStatusEffect(unit: Unit, type: StatusEffectData["type"]): boolean {
-  return unit.statusEffects.some((effect) => effect.type === type);
-}
-
-function isUnitIncapacitated(unit: Unit): boolean {
-  return unit.isPanicked || hasStatusEffect(unit, "stunned");
-}
-
-function getUnitActionLockMessage(unit: Unit): string {
-  if (hasStatusEffect(unit, "stunned")) {
-    return `${unit.name} is stunned and loses this turn.`;
-  }
-
-  if (unit.isPanicked) {
-    return `${unit.name} is panicked and cannot act this turn.`;
-  }
-
-  return `${unit.name} cannot act right now.`;
-}
-
-function calculateHitChance(
-  cover: number,
-  flanked: boolean,
-  rangeBand: RangeBand,
-  aimBonus: number = 0,
-  isSuppressed: boolean = false,
-  smokePenalty: number = 0
-): number {
-  const coverModifier = flanked ? 20 : cover === 1 ? -20 : cover >= 2 ? -40 : 0;
-  const rangeModifier = rangeBand === "close" ? 10 : rangeBand === "long" ? -15 : 0;
-  const suppressionModifier = isSuppressed ? -SUPPRESSION_ACCURACY_PENALTY : 0;
-  return clamp(65 + coverModifier + rangeModifier + aimBonus + suppressionModifier - smokePenalty, 10, 95);
-}
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(max, Math.max(min, value));
 }
