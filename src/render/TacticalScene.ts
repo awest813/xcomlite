@@ -634,6 +634,13 @@ export class TacticalScene {
       const metadata = mesh?.metadata as MeshMetadata | undefined;
       if (metadata?.kind === "unit") {
         const unit = this.battleState.units.find((candidate) => candidate.id === metadata.unitId);
+        if (this.battleState.phase === "ability_select" && this.battleState.selectedAbility?.type === "medkit") {
+          const targeted = this.battleState.selectAbilityTarget(metadata.unitId);
+          if (!targeted && unit !== undefined) {
+            this.flashInvalidTile(unit.position);
+          }
+          return;
+        }
         if (unit?.team === "enemy") {
           const aimed = this.battleState.previewAimAtUnit(metadata.unitId);
           if (!aimed) {

@@ -26,6 +26,8 @@ export function installDebugHooks(battleState: BattleState, scene: Scene, update
       extractZone: battleState.extractZone,
       selectedUnitId: battleState.selectedUnitId,
       selectedTargetUnitId: battleState.selectedTargetUnitId,
+      selectedAbilityType: battleState.selectedAbility?.type ?? null,
+      selectedAbilityTargetUnitId: battleState.selectedAbilityTargetUnitId,
       hoveredTile:
         battleState.hoveredTile === undefined
           ? null
