@@ -1097,11 +1097,11 @@ export class BattleState {
 
       let actionCount = 0;
       let missionEnded = false;
-      while (
-        enemy.actionPoints > 0 &&
-        actionCount < MAX_ACTIONS_PER_ENEMY_TURN &&
-        this.units.some((u) => u.id === enemy.id)
-      ) {
+      while (enemy.actionPoints > 0 && actionCount < MAX_ACTIONS_PER_ENEMY_TURN) {
+        if (!this.units.some((u) => u.id === enemy.id)) {
+          break;
+        }
+
         const beforeAction = this.getEnemyActionSnapshot(enemy);
         const actionResult = this.runEnemyAction(enemy);
         if (actionResult === "done") {
@@ -1120,7 +1120,7 @@ export class BattleState {
         actionCount += 1;
       }
 
-      if (missionEnded || !this.units.some((u) => u.team === "player")) {
+      if (missionEnded || !this.hasPlayerUnitsRemaining()) {
         break;
       }
     }
@@ -1169,6 +1169,10 @@ export class BattleState {
       enemy.weapon.ammo !== before.ammo ||
       (grenadeAbility?.uses ?? 0) !== before.grenadeUses
     );
+  }
+
+  private hasPlayerUnitsRemaining(): boolean {
+    return this.units.some((unit) => unit.team === "player");
   }
 
   private runEnemyAction(enemy: Unit): "continue" | "done" {
