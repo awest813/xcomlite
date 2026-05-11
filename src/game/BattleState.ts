@@ -86,6 +86,14 @@ const SMOKE_HIT_PENALTY = 25;
 const PANIC_DAMAGE_WILL = 10;
 const WILL_RECOVERY_PER_TURN = 5;
 const MAX_ACTIONS_PER_ENEMY_TURN = 20;
+const FLANKED_TARGET_SCORE_BONUS = 24;
+const SMOKE_SHOT_SCORE_PENALTY = 8;
+const COVER_POSITION_SCORE_MULTIPLIER = 12;
+const SMOKE_POSITION_SCORE_BONUS = 8;
+const VISIBLE_TARGET_POSITION_SCORE = 140;
+const EXTRA_VISIBLE_TARGET_SCORE = 10;
+const APPROACH_POSITION_SCORE = 40;
+const APPROACH_DISTANCE_SCORE_MULTIPLIER = 6;
 
 export class BattleState {
   readonly grid: Tile[];
@@ -1339,10 +1347,10 @@ export class BattleState {
   }
 
   private getVisiblePlayerTargets(enemy: Unit, playerUnits: Unit[]): TargetPreview[] {
-    return this.getVisiblePlayerTargetsFromPosition(enemy, enemy.position, playerUnits);
+    return this.getVisiblePlayerTargetsFromPosition(enemy.position, playerUnits);
   }
 
-  private getVisiblePlayerTargetsFromPosition(enemy: Unit, fromPosition: GridPosition, playerUnits: Unit[]): TargetPreview[] {
+  private getVisiblePlayerTargetsFromPosition(fromPosition: GridPosition, playerUnits: Unit[]): TargetPreview[] {
     return playerUnits
       .map((target) => {
         const sightline = calculateSightline(this.grid, fromPosition, target);
@@ -1637,18 +1645,12 @@ export class BattleState {
       return false;
     }
 
-    return sightline.path.some((position, index) => {
-      if (index === 0) {
-        return false;
-      }
-
-      return (getTile(this.grid, position)?.smokeTurns ?? 0) > 0;
-    });
+    return sightline.path.some((position, index) => index > 0 && (getTile(this.grid, position)?.smokeTurns ?? 0) > 0);
   }
 
   private scoreEnemyPosition(enemy: Unit, position: GridPosition, playerUnits: Unit[]): number {
     const tile = getTile(this.grid, position);
-    const visibleTargets = this.getVisiblePlayerTargetsFromPosition(enemy, position, playerUnits);
+    const visibleTargets = this.getVisiblePlayerTargetsFromPosition(position, playerUnits);
     const bestShotScore = visibleTargets.reduce((best, target) => {
       const targetUnit = playerUnits.find((unit) => unit.id === target.targetUnitId);
       if (targetUnit === undefined) {
@@ -1664,7 +1666,10 @@ export class BattleState {
         enemy.isSuppressed,
         target.smokeObscured ? SMOKE_HIT_PENALTY : 0
       );
-      const score = hitChance + (target.flanked ? 24 : 0) - (target.smokeObscured ? 8 : 0);
+      const score =
+        hitChance +
+        (target.flanked ? FLANKED_TARGET_SCORE_BONUS : 0) -
+        (target.smokeObscured ? SMOKE_SHOT_SCORE_PENALTY : 0);
       return Math.max(best, score);
     }, Number.NEGATIVE_INFINITY);
     const nearestDistance = playerUnits.reduce(
@@ -1672,11 +1677,13 @@ export class BattleState {
       Number.POSITIVE_INFINITY
     );
     const moveTax = getManhattanDistance(enemy.position, position);
-    const coverScore = (tile?.cover ?? 0) * 12 + ((tile?.smokeTurns ?? 0) > 0 ? 8 : 0);
+    const coverScore =
+      (tile?.cover ?? 0) * COVER_POSITION_SCORE_MULTIPLIER +
+      ((tile?.smokeTurns ?? 0) > 0 ? SMOKE_POSITION_SCORE_BONUS : 0);
     const visibilityScore =
       visibleTargets.length > 0
-        ? 140 + bestShotScore + Math.min(visibleTargets.length, 2) * 10
-        : Math.max(0, 40 - nearestDistance * 6);
+        ? VISIBLE_TARGET_POSITION_SCORE + bestShotScore + Math.min(visibleTargets.length, 2) * EXTRA_VISIBLE_TARGET_SCORE
+        : Math.max(0, APPROACH_POSITION_SCORE - nearestDistance * APPROACH_DISTANCE_SCORE_MULTIPLIER);
 
     return visibilityScore + coverScore - moveTax;
   }
