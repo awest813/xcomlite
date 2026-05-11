@@ -18,6 +18,7 @@ import {
   VertexData,
 } from "@babylonjs/core";
 import { AdvancedDynamicTexture, Control, Rectangle, StackPanel, TextBlock } from "@babylonjs/gui";
+import { Easing, Group, Tween } from "@tweenjs/tween.js";
 import { GRID_HEIGHT, GRID_WIDTH, getTile } from "../game/Grid";
 import type { BattleState } from "../game/BattleState";
 import type { GridPosition, Tile, Unit } from "../game/types";
@@ -29,6 +30,7 @@ type MeshMetadata =
 
 const TILE_SIZE = 1;
 const UNIT_MOVE_SPEED_TILES_PER_SECOND = 5;
+const MIN_UNIT_MOVE_DURATION_MS = 120;
 
 /** Camera–unit distance at which nameplates use the smallest uniform scale. */
 const NAMEPLATE_DIST_NEAR = 7.5;
@@ -38,8 +40,7 @@ const NAMEPLATE_SCALE_NEAR = 0.72;
 const NAMEPLATE_SCALE_FAR = 1.88;
 
 interface UnitAnimation {
-  waypoints: Vector3[];
-  waypointIndex: number;
+  tween: Tween<{ distance: number }>;
 }
 
 interface UnitLabelHandles {
@@ -97,6 +98,7 @@ export class TacticalScene {
   private readonly invalidFlashMaterial: StandardMaterial;
   private hoveredPath: GridPosition[] = [];
   private readonly unitAnimations = new Map<string, UnitAnimation>();
+  private readonly movementTweenGroup = new Group();
   private readonly unitLabels = new Map<string, UnitLabelHandles>();
   private readonly unitBodyMaterials = new Map<string, StandardMaterial>();
   /** Static scene meshes (starfield, covers, stripes, extract zone) that must be disposed when switching maps. */
@@ -682,8 +684,9 @@ export class TacticalScene {
   }
 
   update(deltaMs: number): void {
+    const now = performance.now();
+    this.movementTweenGroup.update(now);
     this.startQueuedMovementAnimations();
-    this.updateMovementAnimations(deltaMs);
     this.updateShotEffects(deltaMs);
     this.updateNameplateScales();
     this.updateOverwatchRotation(deltaMs);
@@ -799,6 +802,8 @@ export class TacticalScene {
       this.unitOverwatchMarkers.delete(unitId);
       this.unitSuppressionMarkers.delete(unitId);
       this.enemySightMarkers.delete(unitId);
+      const animation = this.unitAnimations.get(unitId);
+      animation?.tween.stop();
       this.unitAnimations.delete(unitId);
     });
   }
@@ -828,48 +833,82 @@ export class TacticalScene {
         mesh.position = waypoints[0].clone();
       }
 
-      this.unitAnimations.set(event.unitId, {
-        waypoints,
-        waypointIndex: 1,
-      });
-    });
-  }
+      const previousAnimation = this.unitAnimations.get(event.unitId);
+      previousAnimation?.tween.stop();
+      this.unitAnimations.delete(event.unitId);
 
-  private updateMovementAnimations(deltaMs: number): void {
-    const maxDistance = UNIT_MOVE_SPEED_TILES_PER_SECOND * (deltaMs / 1000);
+      const segmentLengths: number[] = [];
+      let totalDistance = 0;
+      for (let i = 1; i < waypoints.length; i += 1) {
+        const segmentLength = Vector3.Distance(waypoints[i - 1], waypoints[i]);
+        segmentLengths.push(segmentLength);
+        totalDistance += segmentLength;
+      }
 
-    this.unitAnimations.forEach((animation, unitId) => {
-      const mesh = this.unitMeshes.get(unitId);
-      if (mesh === undefined) {
-        this.unitAnimations.delete(unitId);
+      if (totalDistance <= 0) {
         return;
       }
 
-      let remainingDistance = maxDistance;
-      while (remainingDistance > 0 && animation.waypointIndex < animation.waypoints.length) {
-        const target = animation.waypoints[animation.waypointIndex];
-        const distanceToTarget = Vector3.Distance(mesh.position, target);
+      const durationMs = Math.max(
+        MIN_UNIT_MOVE_DURATION_MS,
+        (totalDistance / UNIT_MOVE_SPEED_TILES_PER_SECOND) * 1000
+      );
+      const tweenState = { distance: 0 };
+      const tween = new Tween(tweenState, this.movementTweenGroup)
+        .to({ distance: totalDistance }, durationMs)
+        .easing(Easing.Quadratic.InOut)
+        .onUpdate(() => {
+          if (mesh !== undefined) {
+            mesh.position = this.interpolateAlongWaypoints(waypoints, segmentLengths, tweenState.distance);
+          }
+        })
+        .onComplete(() => {
+          const unit = this.battleState.units.find((candidate) => candidate.id === event.unitId);
+          if (unit !== undefined && mesh !== undefined) {
+            const baseY = unit.position.elevation * 0.5;
+            mesh.position = this.toWorldPosition(unit.position, baseY + 0.42);
+          }
+          this.unitAnimations.delete(event.unitId);
+        });
 
-        if (distanceToTarget <= remainingDistance) {
-          mesh.position = target.clone();
-          animation.waypointIndex += 1;
-          remainingDistance -= distanceToTarget;
-        } else {
-          const direction = target.subtract(mesh.position).normalize();
-          mesh.position = mesh.position.add(direction.scale(remainingDistance));
-          remainingDistance = 0;
-        }
-      }
-
-      if (animation.waypointIndex >= animation.waypoints.length) {
-        const unit = this.battleState.units.find((candidate) => candidate.id === unitId);
-        if (unit !== undefined) {
-          const baseY = unit.position.elevation * 0.5;
-          mesh.position = this.toWorldPosition(unit.position, baseY + 0.42);
-        }
-        this.unitAnimations.delete(unitId);
-      }
+      tween.start();
+      this.unitAnimations.set(event.unitId, { tween });
     });
+  }
+
+  private interpolateAlongWaypoints(
+    waypoints: Vector3[],
+    segmentLengths: number[],
+    distanceAlongPath: number
+  ): Vector3 {
+    if (waypoints.length === 0) {
+      return Vector3.Zero();
+    }
+    if (waypoints.length === 1) {
+      return waypoints[0].clone();
+    }
+    if (segmentLengths.length === 0 || segmentLengths.every((segmentLength) => segmentLength <= 0)) {
+      return waypoints[waypoints.length - 1].clone();
+    }
+
+    let remainingDistance = distanceAlongPath;
+    for (let i = 0; i < segmentLengths.length; i += 1) {
+      const segmentLength = segmentLengths[i];
+      if (segmentLength <= 0) {
+        continue;
+      }
+
+      if (remainingDistance <= segmentLength) {
+        const start = waypoints[i];
+        const end = waypoints[i + 1];
+        const t = remainingDistance / segmentLength;
+        return Vector3.Lerp(start, end, t);
+      }
+
+      remainingDistance -= segmentLength;
+    }
+
+    return waypoints[waypoints.length - 1].clone();
   }
 
   private syncTileHighlights(): void {
@@ -1174,7 +1213,9 @@ export class TacticalScene {
     this.shotLineMeshes.length = 0;
     this.impactFlashMeshes.forEach((mesh) => mesh.dispose());
     this.impactFlashMeshes.length = 0;
+    this.unitAnimations.forEach((animation) => animation.tween.stop());
     this.unitAnimations.clear();
+    this.movementTweenGroup.removeAll();
     this.staticMeshes.forEach((mesh) => mesh.dispose());
     this.staticMeshes.length = 0;
     this.sceneLight?.dispose();

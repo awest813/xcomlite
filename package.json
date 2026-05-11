@@ -15,6 +15,7 @@
     "vite": "latest"
   },
   "dependencies": {
-    "@babylonjs/gui": "^9.6.2"
+    "@babylonjs/gui": "^9.6.2",
+    "@tweenjs/tween.js": "^25.0.0"
   }
 }
