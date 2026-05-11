@@ -1097,7 +1097,11 @@ export class BattleState {
 
       let actionCount = 0;
       let missionEnded = false;
-      while (enemy.actionPoints > 0 && actionCount < MAX_ACTIONS_PER_ENEMY_TURN) {
+      while (
+        enemy.actionPoints > 0 &&
+        actionCount < MAX_ACTIONS_PER_ENEMY_TURN &&
+        this.units.some((u) => u.id === enemy.id)
+      ) {
         const beforeAction = this.getEnemyActionSnapshot(enemy);
         const actionResult = this.runEnemyAction(enemy);
         if (actionResult === "done") {
@@ -1105,10 +1109,15 @@ export class BattleState {
           break;
         }
 
-        actionCount += 1;
+        if (!this.units.some((u) => u.id === enemy.id)) {
+          break;
+        }
+
         if (!this.didEnemyStateChange(enemy, beforeAction)) {
           break;
         }
+
+        actionCount += 1;
       }
 
       if (missionEnded || this.units.filter((u) => u.team === "player").length === 0) {
