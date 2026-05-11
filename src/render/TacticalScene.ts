@@ -2,10 +2,15 @@ import {
   ArcRotateCamera,
   AbstractMesh,
   Color3,
+  Color4,
+  DefaultRenderingPipeline,
+  GlowLayer,
   HemisphericLight,
+  ImageProcessingConfiguration,
   LinesMesh,
   Mesh,
   MeshBuilder,
+  PointLight,
   PointerEventTypes,
   Scene,
   StandardMaterial,
@@ -94,6 +99,13 @@ export class TacticalScene {
   private readonly unitAnimations = new Map<string, UnitAnimation>();
   private readonly unitLabels = new Map<string, UnitLabelHandles>();
   private readonly unitBodyMaterials = new Map<string, StandardMaterial>();
+  /** Static scene meshes (starfield, covers, stripes, extract zone) that must be disposed when switching maps. */
+  private readonly staticMeshes: Mesh[] = [];
+  private sceneLight: HemisphericLight | null = null;
+  private extractZoneLight: PointLight | null = null;
+  private glowLayer: GlowLayer | null = null;
+  private renderingPipeline: DefaultRenderingPipeline | null = null;
+  private extractZoneLightPhase = 0;
 
   constructor(
     private readonly scene: Scene,
@@ -131,20 +143,20 @@ export class TacticalScene {
     this.impactMissMaterial = this.createMaterial("impact-miss-material", new Color3(0.5, 0.5, 0.5));
     this.impactMissMaterial.emissiveColor = new Color3(0.15, 0.15, 0.15);
     this.overwatchMarkerMaterial = this.createMaterial("overwatch-marker-material", new Color3(0.2, 0.8, 0.2));
-    this.overwatchMarkerMaterial.emissiveColor = new Color3(0.08, 0.3, 0.08);
+    this.overwatchMarkerMaterial.emissiveColor = new Color3(0.12, 0.42, 0.12);
     this.suppressionMarkerMaterial = this.createMaterial("suppression-marker-material", new Color3(0.9, 0.55, 0.1));
-    this.suppressionMarkerMaterial.emissiveColor = new Color3(0.3, 0.16, 0.02);
+    this.suppressionMarkerMaterial.emissiveColor = new Color3(0.42, 0.22, 0.03);
     this.extractZoneMaterial = this.createMaterial("extract-zone-material", new Color3(0.2, 0.6, 0.9));
-    this.extractZoneMaterial.emissiveColor = new Color3(0.1, 0.25, 0.4);
+    this.extractZoneMaterial.emissiveColor = new Color3(0.14, 0.35, 0.58);
     this.fogHiddenMaterial = this.createMaterial("fog-hidden-material", new Color3(0.02, 0.02, 0.04));
     this.fogExploredMaterial = this.createMaterial("fog-explored-material", new Color3(0.08, 0.08, 0.12));
     this.invalidFlashMaterial = this.createMaterial("invalid-flash-material", new Color3(0.62, 0.12, 0.1));
     this.invalidFlashMaterial.emissiveColor = new Color3(0.42, 0.06, 0.05);
-    this.selectionRingMaterial.emissiveColor = new Color3(0.1, 0.28, 0.42);
-    this.pathMarkerMaterial.emissiveColor = new Color3(0.18, 0.13, 0.01);
-    this.visibleEnemyMarkerMaterial.emissiveColor = new Color3(0.22, 0.1, 0.01);
-    this.flankedEnemyMarkerMaterial.emissiveColor = new Color3(0.22, 0.03, 0.02);
-    this.aimedEnemyMarkerMaterial.emissiveColor = new Color3(0.3, 0.22, 0.04);
+    this.selectionRingMaterial.emissiveColor = new Color3(0.18, 0.45, 0.72);
+    this.pathMarkerMaterial.emissiveColor = new Color3(0.28, 0.2, 0.02);
+    this.visibleEnemyMarkerMaterial.emissiveColor = new Color3(0.38, 0.18, 0.02);
+    this.flankedEnemyMarkerMaterial.emissiveColor = new Color3(0.38, 0.05, 0.03);
+    this.aimedEnemyMarkerMaterial.emissiveColor = new Color3(0.45, 0.35, 0.06);
 
     this.setupCamera(canvas);
     this.setupLighting();
@@ -169,10 +181,45 @@ export class TacticalScene {
   }
 
   private setupLighting(): void {
-    const light = new HemisphericLight("tactical-light", new Vector3(0.4, 1, 0.3), this.scene);
-    light.intensity = 0.85;
+    this.sceneLight = new HemisphericLight("tactical-light", new Vector3(0.4, 1, 0.3), this.scene);
+    this.sceneLight.intensity = 0.85;
     this.scene.clearColor.set(0.01, 0.01, 0.03, 1);
     this.createStarfield();
+
+    if (this.battleState.extractZone !== null) {
+      const extractWorld = this.toWorldPosition(
+        { ...this.battleState.extractZone, elevation: this.battleState.extractZone.elevation ?? 0 },
+        1.2
+      );
+      this.extractZoneLight = new PointLight("extract-zone-light", extractWorld, this.scene);
+      this.extractZoneLight.diffuse = new Color3(0.3, 0.7, 1.0);
+      this.extractZoneLight.specular = new Color3(0.1, 0.3, 0.5);
+      this.extractZoneLight.intensity = 1.4;
+      this.extractZoneLight.range = 5;
+    }
+
+    this.glowLayer = new GlowLayer("tactical-glow", this.scene);
+    this.glowLayer.intensity = 0.48;
+    this.glowLayer.blurKernelSize = 32;
+
+    try {
+      this.renderingPipeline = new DefaultRenderingPipeline("tactical-pipeline", true, this.scene, [this.camera]);
+      this.renderingPipeline.bloomEnabled = true;
+      this.renderingPipeline.bloomThreshold = 0.38;
+      this.renderingPipeline.bloomWeight = 0.36;
+      this.renderingPipeline.bloomKernel = 48;
+      this.renderingPipeline.bloomScale = 0.5;
+      this.renderingPipeline.chromaticAberrationEnabled = true;
+      this.renderingPipeline.chromaticAberration.aberrationAmount = 1.8;
+      this.renderingPipeline.imageProcessingEnabled = true;
+      this.renderingPipeline.imageProcessing.vignetteEnabled = true;
+      this.renderingPipeline.imageProcessing.vignetteWeight = 3.2;
+      this.renderingPipeline.imageProcessing.vignetteColor = new Color4(0, 0, 0, 0);
+      this.renderingPipeline.imageProcessing.vignetteBlendMode = ImageProcessingConfiguration.VIGNETTEMODE_MULTIPLY;
+    } catch {
+      // Pipeline not supported in this context — continue without it
+      this.renderingPipeline = null;
+    }
   }
 
   private createStarfield(): void {
@@ -204,6 +251,8 @@ export class TacticalScene {
     starMaterial.pointSize = 2;
     starMesh.material = starMaterial;
     starMesh.isPickable = false;
+
+    this.staticMeshes.push(starMesh);
   }
 
   private renderGrid(): void {
@@ -228,6 +277,7 @@ export class TacticalScene {
         stripeMesh.position = this.toWorldPosition(tile, tileHeight + 0.048);
         stripeMesh.material = this.roadStripeMaterial;
         stripeMesh.isPickable = false;
+        this.staticMeshes.push(stripeMesh);
       }
 
       if (tile.cover > 0) {
@@ -246,6 +296,7 @@ export class TacticalScene {
         extractMesh.position = this.toWorldPosition(extractTile, extractTile.elevation * 0.5 + 0.06);
         extractMesh.material = this.extractZoneMaterial;
         extractMesh.isPickable = false;
+        this.staticMeshes.push(extractMesh);
       }
     }
   }
@@ -460,6 +511,7 @@ export class TacticalScene {
       coverMesh.position = position;
       coverMesh.material = isFullCover ? this.fullCoverMaterial : this.halfCoverMaterial;
       coverMesh.isPickable = false;
+      this.staticMeshes.push(coverMesh);
     });
   }
 
@@ -474,6 +526,7 @@ export class TacticalScene {
     coverMesh.position = this.toWorldPosition(tile, baseY + coverHeight / 2 + 0.04);
     coverMesh.material = tile.cover >= 2 ? this.fullCoverMaterial : this.halfCoverMaterial;
     coverMesh.isPickable = false;
+    this.staticMeshes.push(coverMesh);
   }
 
   private setupPicking(_canvas: HTMLCanvasElement): void {
@@ -625,6 +678,26 @@ export class TacticalScene {
     this.updateMovementAnimations(deltaMs);
     this.updateShotEffects(deltaMs);
     this.updateNameplateScales();
+    this.updateOverwatchRotation(deltaMs);
+    this.updateExtractZoneLight(deltaMs);
+  }
+
+  private updateOverwatchRotation(deltaMs: number): void {
+    const deltaRad = (deltaMs / 1000) * 0.9;
+    this.unitOverwatchMarkers.forEach((marker) => {
+      if (marker.isVisible) {
+        marker.rotation.y += deltaRad;
+      }
+    });
+  }
+
+  private updateExtractZoneLight(deltaMs: number): void {
+    if (this.extractZoneLight === null) {
+      return;
+    }
+    this.extractZoneLightPhase += deltaMs / 1000;
+    const pulse = 0.5 + 0.5 * Math.sin(this.extractZoneLightPhase * 2.2);
+    this.extractZoneLight.intensity = 0.9 + pulse * 0.9;
   }
 
   private updateNameplateScales(): void {
@@ -1094,6 +1167,16 @@ export class TacticalScene {
     this.impactFlashMeshes.forEach((mesh) => mesh.dispose());
     this.impactFlashMeshes.length = 0;
     this.unitAnimations.clear();
+    this.staticMeshes.forEach((mesh) => mesh.dispose());
+    this.staticMeshes.length = 0;
+    this.sceneLight?.dispose();
+    this.sceneLight = null;
+    this.extractZoneLight?.dispose();
+    this.extractZoneLight = null;
+    this.glowLayer?.dispose();
+    this.glowLayer = null;
+    this.renderingPipeline?.dispose();
+    this.renderingPipeline = null;
   }
 }
 
