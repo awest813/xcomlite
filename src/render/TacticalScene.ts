@@ -99,7 +99,6 @@ export class TacticalScene {
   private hoveredPath: GridPosition[] = [];
   private readonly unitAnimations = new Map<string, UnitAnimation>();
   private readonly movementTweenGroup = new Group();
-  private movementTweenTimeMs = 0;
   private readonly unitLabels = new Map<string, UnitLabelHandles>();
   private readonly unitBodyMaterials = new Map<string, StandardMaterial>();
   /** Static scene meshes (starfield, covers, stripes, extract zone) that must be disposed when switching maps. */
@@ -685,8 +684,7 @@ export class TacticalScene {
   }
 
   update(deltaMs: number): void {
-    this.movementTweenTimeMs += deltaMs;
-    this.movementTweenGroup.update(this.movementTweenTimeMs);
+    this.movementTweenGroup.update();
     this.startQueuedMovementAnimations();
     this.updateShotEffects(deltaMs);
     this.updateNameplateScales();
@@ -872,7 +870,7 @@ export class TacticalScene {
           this.unitAnimations.delete(event.unitId);
         });
 
-      tween.start(this.movementTweenTimeMs);
+      tween.start();
       this.unitAnimations.set(event.unitId, { tween });
     });
   }
@@ -889,7 +887,7 @@ export class TacticalScene {
       return waypoints[0].clone();
     }
 
-    let remainingDistance = Math.max(0, distanceAlongPath);
+    let remainingDistance = distanceAlongPath;
     for (let i = 0; i < segmentLengths.length; i += 1) {
       const segmentLength = segmentLengths[i];
       if (segmentLength <= 0) {
