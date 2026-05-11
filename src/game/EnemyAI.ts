@@ -405,7 +405,7 @@ export class EnemyAI {
 
   private isSightlineObscured(sightline: Sightline): boolean {
     return sightline.path.some(
-      (pos, idx) => idx > 0 && (getTile(this.state.grid, pos)?.smokeTurns ?? 0) > 0
+      (pos, index) => index > 0 && (getTile(this.state.grid, pos)?.smokeTurns ?? 0) > 0
     );
   }
 }
