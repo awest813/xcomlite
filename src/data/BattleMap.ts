@@ -218,6 +218,56 @@ const voidRift: AuthoredTile[] = [
   { x: 9, y: 9, terrain: "rough", moveCost: 2 },
 ];
 
+const shipFreighterBaseHub: AuthoredTile[] = [
+  { x: 0, y: 0, terrain: "obstacle", walkable: false, blocksSight: true },
+  { x: 1, y: 0, terrain: "obstacle", walkable: false, blocksSight: true },
+  { x: 8, y: 0, terrain: "obstacle", walkable: false, blocksSight: true },
+  { x: 9, y: 0, terrain: "obstacle", walkable: false, blocksSight: true },
+  { x: 0, y: 1, terrain: "obstacle", walkable: false, blocksSight: true },
+  { x: 9, y: 1, terrain: "obstacle", walkable: false, blocksSight: true },
+  { x: 0, y: 8, terrain: "obstacle", walkable: false, blocksSight: true },
+  { x: 9, y: 8, terrain: "obstacle", walkable: false, blocksSight: true },
+  { x: 0, y: 9, terrain: "obstacle", walkable: false, blocksSight: true },
+  { x: 1, y: 9, terrain: "obstacle", walkable: false, blocksSight: true },
+  { x: 8, y: 9, terrain: "obstacle", walkable: false, blocksSight: true },
+  { x: 9, y: 9, terrain: "obstacle", walkable: false, blocksSight: true },
+
+  { x: 4, y: 0, terrain: "road" },
+  { x: 5, y: 0, terrain: "road" },
+  { x: 4, y: 1, terrain: "road" },
+  { x: 5, y: 1, terrain: "road" },
+  { x: 4, y: 2, terrain: "road" },
+  { x: 5, y: 2, terrain: "road" },
+  { x: 4, y: 3, terrain: "road" },
+  { x: 5, y: 3, terrain: "road" },
+  { x: 4, y: 6, terrain: "road" },
+  { x: 5, y: 6, terrain: "road" },
+  { x: 4, y: 7, terrain: "road" },
+  { x: 5, y: 7, terrain: "road" },
+  { x: 4, y: 8, terrain: "road" },
+  { x: 5, y: 8, terrain: "road" },
+  { x: 4, y: 9, terrain: "road" },
+  { x: 5, y: 9, terrain: "road" },
+
+  { x: 2, y: 2, terrain: "floor", cover: 1, coverSides: { east: 1 }, moveCost: 2 },
+  { x: 7, y: 2, terrain: "floor", cover: 1, coverSides: { west: 1 }, moveCost: 2 },
+  { x: 2, y: 3, terrain: "rough", moveCost: 2 },
+  { x: 7, y: 3, terrain: "rough", moveCost: 2 },
+  { x: 2, y: 4, terrain: "floor", cover: 2, coverSides: { east: 2 }, moveCost: 2 },
+  { x: 7, y: 4, terrain: "floor", cover: 2, coverSides: { west: 2 }, moveCost: 2 },
+  { x: 2, y: 5, terrain: "floor", cover: 2, coverSides: { east: 2 }, moveCost: 2 },
+  { x: 7, y: 5, terrain: "floor", cover: 2, coverSides: { west: 2 }, moveCost: 2 },
+  { x: 2, y: 6, terrain: "rough", moveCost: 2 },
+  { x: 7, y: 6, terrain: "rough", moveCost: 2 },
+  { x: 2, y: 7, terrain: "floor", cover: 1, coverSides: { east: 1 }, moveCost: 2 },
+  { x: 7, y: 7, terrain: "floor", cover: 1, coverSides: { west: 1 }, moveCost: 2 },
+
+  { x: 4, y: 4, terrain: "obstacle", walkable: false, cover: 2, coverSides: { north: 2, east: 2, south: 2, west: 2 }, blocksSight: true },
+  { x: 5, y: 4, terrain: "obstacle", walkable: false, cover: 2, coverSides: { north: 2, east: 2, south: 2, west: 2 }, blocksSight: true },
+  { x: 4, y: 5, terrain: "obstacle", walkable: false, cover: 2, coverSides: { north: 2, east: 2, south: 2, west: 2 }, blocksSight: true },
+  { x: 5, y: 5, terrain: "obstacle", walkable: false, cover: 2, coverSides: { north: 2, east: 2, south: 2, west: 2 }, blocksSight: true },
+];
+
 export const mapLayouts: MapLayout[] = [
   {
     id: "station-7g",
@@ -252,6 +302,17 @@ export const mapLayouts: MapLayout[] = [
     playerStarts: [{ x: 4, y: 0, elevation: 0 }, { x: 5, y: 0, elevation: 0 }, { x: 4, y: 1, elevation: 0 }],
     enemyStarts: [{ x: 4, y: 8, elevation: 0 }, { x: 5, y: 8, elevation: 0 }, { x: 5, y: 9, elevation: 0 }],
     tiles: voidRift,
+  },
+  {
+    id: "ship-freighter-base-hub",
+    name: "Ship Freighter Base Hub",
+    missionType: "eliminate",
+    objective: "Secure the freighter command hub and eliminate all hostiles.",
+    width: 10,
+    height: 10,
+    playerStarts: [{ x: 1, y: 2, elevation: 0 }, { x: 1, y: 4, elevation: 0 }, { x: 1, y: 6, elevation: 0 }],
+    enemyStarts: [{ x: 8, y: 3, elevation: 0 }, { x: 8, y: 5, elevation: 0 }, { x: 8, y: 7, elevation: 0 }],
+    tiles: shipFreighterBaseHub,
   },
 ];
 

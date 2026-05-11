@@ -314,3 +314,9 @@ The tactical combat framework now supports:
 - Hover hint over enemies now reads "Click to select as suppression target." during suppression mode.
 - `handlePickedMesh` in TacticalScene routes enemy clicks to `selectAbilityTarget` during suppression `ability_select` phase.
 - `npm run build` passes after Phase 16 changes.
+
+## Phase 17 Ship Freighter Base Hub
+
+- Added a new authored deployment map: **Ship Freighter Base Hub**.
+- Added a new map layout entry (`ship-freighter-base-hub`) with eliminate objective, deployment starts, and enemy starts.
+- Map is available from the deploy zone selector via the existing `mapLayouts` list.
