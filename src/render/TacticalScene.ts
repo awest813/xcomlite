@@ -684,7 +684,8 @@ export class TacticalScene {
   }
 
   update(deltaMs: number): void {
-    this.movementTweenGroup.update(performance.now());
+    const now = performance.now();
+    this.movementTweenGroup.update(now);
     this.startQueuedMovementAnimations();
     this.updateShotEffects(deltaMs);
     this.updateNameplateScales();
@@ -885,6 +886,9 @@ export class TacticalScene {
     }
     if (waypoints.length === 1 || segmentLengths.length === 0) {
       return waypoints[0].clone();
+    }
+    if (!segmentLengths.some((segmentLength) => segmentLength > 0)) {
+      return waypoints[waypoints.length - 1].clone();
     }
 
     let remainingDistance = distanceAlongPath;
