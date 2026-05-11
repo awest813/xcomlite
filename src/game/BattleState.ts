@@ -1120,7 +1120,7 @@ export class BattleState {
         actionCount += 1;
       }
 
-      if (missionEnded || this.units.filter((u) => u.team === "player").length === 0) {
+      if (missionEnded || !this.units.some((u) => u.team === "player")) {
         break;
       }
     }
