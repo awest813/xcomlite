@@ -62,6 +62,14 @@ export interface ExplosionResult {
   unitsHit: { unitId: string; damage: number; killed: boolean }[];
 }
 
+interface EnemyActionSnapshot {
+  positionKey: string;
+  actionPoints: number;
+  movementPoints: number;
+  ammo: number;
+  grenadeUses: number;
+}
+
 const SHOOT_ACTION_POINT_COST = 1;
 const RELOAD_ACTION_POINT_COST = 1;
 const OVERWATCH_HIT_PENALTY = 20;
@@ -74,6 +82,7 @@ const FLASHBANG_DURATION = 1;
 const SMOKE_RADIUS = 2;
 const PANIC_DAMAGE_WILL = 10;
 const WILL_RECOVERY_PER_TURN = 5;
+const MAX_ACTIONS_PER_ENEMY_TURN = 20;
 
 export class BattleState {
   readonly grid: Tile[];
@@ -1086,8 +1095,32 @@ export class BattleState {
         continue;
       }
 
-      const actionResult = this.runEnemyAction(enemy);
-      if (actionResult === "done") {
+      let actionCount = 0;
+      let missionEnded = false;
+      while (enemy.actionPoints > 0 && actionCount < MAX_ACTIONS_PER_ENEMY_TURN) {
+        if (!this.units.some((u) => u.id === enemy.id)) {
+          break;
+        }
+
+        const beforeAction = this.getEnemyActionSnapshot(enemy);
+        const actionResult = this.runEnemyAction(enemy);
+        if (actionResult === "done") {
+          missionEnded = true;
+          break;
+        }
+
+        if (!this.units.some((u) => u.id === enemy.id)) {
+          break;
+        }
+
+        if (!this.didEnemyStateChange(enemy, beforeAction)) {
+          break;
+        }
+
+        actionCount += 1;
+      }
+
+      if (missionEnded || !this.hasPlayerUnitsRemaining()) {
         break;
       }
     }
@@ -1111,6 +1144,35 @@ export class BattleState {
     this.checkMissionResult();
     this.notify();
     this.updateFogOfWar();
+  }
+
+  private getEnemyActionSnapshot(enemy: Unit): EnemyActionSnapshot {
+    const grenadeAbility = enemy.abilities.find((ability) => ability.type === "grenade");
+    return {
+      positionKey: tileKey(enemy.position),
+      actionPoints: enemy.actionPoints,
+      movementPoints: enemy.movementPoints,
+      ammo: enemy.weapon.ammo,
+      grenadeUses: grenadeAbility?.uses ?? 0,
+    };
+  }
+
+  private didEnemyStateChange(
+    enemy: Unit,
+    before: EnemyActionSnapshot
+  ): boolean {
+    const grenadeAbility = enemy.abilities.find((ability) => ability.type === "grenade");
+    return (
+      tileKey(enemy.position) !== before.positionKey ||
+      enemy.actionPoints !== before.actionPoints ||
+      enemy.movementPoints !== before.movementPoints ||
+      enemy.weapon.ammo !== before.ammo ||
+      (grenadeAbility?.uses ?? 0) !== before.grenadeUses
+    );
+  }
+
+  private hasPlayerUnitsRemaining(): boolean {
+    return this.units.some((unit) => unit.team === "player");
   }
 
   private runEnemyAction(enemy: Unit): "continue" | "done" {
