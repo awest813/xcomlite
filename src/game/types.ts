@@ -100,3 +100,27 @@ export interface Unit {
   maxWill: number;
   kills: number;
 }
+
+// ——— Campaign persistence types ———
+
+export interface CampaignUnit {
+  id: string;
+  name: string;
+  unitClass: UnitClass;
+  xp: number;
+  level: number;
+  totalKills: number;
+  missionsCompleted: number;
+  isInjured: boolean;
+  injuryMissionsLeft: number;
+  /** HP fraction (0–1) carried into the next mission; 1.0 = full health. */
+  hpFraction: number;
+}
+
+export interface Campaign {
+  version: number;
+  credits: number;
+  units: CampaignUnit[];
+  missionsCompleted: number;
+  completedMapIds: string[];
+}

@@ -1,7 +1,7 @@
 import { buildGrid, getNeighbors, getTile } from "./Grid";
 import { calculateSightline, type Sightline } from "./LineOfSight";
 import { calculateMovement, getPath, tileKey, type PathfindingResult } from "./Pathfinding";
-import { createEnemyUnits, createPlayerUnits } from "./Units";
+import { createEnemyUnits, createPlayerUnits, createPlayerUnitsFromCampaign } from "./Units";
 import {
   calculateHitChance,
   getCoverDirectionTowardAttacker,
@@ -19,7 +19,8 @@ import {
 } from "./CombatUtils";
 import { EnemyAI } from "./EnemyAI";
 import type { MapLayout } from "../data/BattleMap";
-import type { Ability, AbilityType, BattlePhase, CoverDirection, GridPosition, MissionResult, MissionType, StatusEffectData, Team, Tile, Unit } from "./types";
+import type { Ability, AbilityType, BattlePhase, CampaignUnit, CoverDirection, GridPosition, MissionResult, MissionType, StatusEffectData, Team, Tile, Unit } from "./types";
+import type { UnitBattleOutcome } from "./CampaignState";
 
 type BattleStateListener = () => void;
 
@@ -115,12 +116,15 @@ export class BattleState {
   private readonly shotEvents: ShotEvent[] = [];
   private readonly explosionEvents: ExplosionEvent[] = [];
 
-  constructor(layout: MapLayout) {
+  constructor(layout: MapLayout, campaignUnits?: CampaignUnit[]) {
     this.mapLayout = layout;
     this.missionType = layout.missionType;
     this.extractZone = layout.extractZone ?? null;
     this.grid = buildGrid(layout);
-    this.units = [...createPlayerUnits(layout.playerStarts), ...createEnemyUnits(layout.enemyStarts)];
+    const playerUnits = campaignUnits !== undefined
+      ? createPlayerUnitsFromCampaign(campaignUnits, layout.playerStarts)
+      : createPlayerUnits(layout.playerStarts);
+    this.units = [...playerUnits, ...createEnemyUnits(layout.enemyStarts)];
     this.units.forEach((unit) => {
       const tile = getTile(this.grid, unit.position);
       if (tile !== undefined) {
@@ -1010,6 +1014,28 @@ export class BattleState {
     this.pendingFeedback = null;
     this.turnNumber = 1;
     this.notify();
+  }
+
+  /**
+   * Extract per-unit outcomes for campaign result processing.
+   * Called after missionResult is no longer "in_progress".
+   * For units that died during the mission their outcome is inferred from the
+   * original campaign roster, so the caller must pass the ids to track.
+   */
+  extractBattleResults(campaignUnitIds: string[]): UnitBattleOutcome[] {
+    return campaignUnitIds.map((unitId) => {
+      const liveUnit = this.units.find((u) => u.id === unitId);
+      if (liveUnit !== undefined) {
+        return {
+          unitId,
+          kills: liveUnit.kills,
+          hpFraction: liveUnit.maxHp > 0 ? liveUnit.hp / liveUnit.maxHp : 0,
+          survived: true,
+        };
+      }
+      // Unit was eliminated during the mission.
+      return { unitId, kills: 0, hpFraction: 0, survived: false };
+    });
   }
 
   clearOverwatch(team: Team): void {

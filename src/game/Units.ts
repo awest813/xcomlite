@@ -1,5 +1,6 @@
 import { voidSovereignsTheme, type ThemeConfig } from "../data/BattleMap";
-import type { Ability, GridPosition, InventoryItem, Unit, WeaponProfile } from "./types";
+import type { Ability, CampaignUnit, GridPosition, InventoryItem, Unit, WeaponProfile } from "./types";
+import { getLevelBoosts } from "./CampaignState";
 
 let currentTheme: ThemeConfig = voidSovereignsTheme;
 
@@ -97,6 +98,35 @@ export function createPlayerUnits(starts: GridPosition[]): Unit[] {
     createUnit("player-2", currentTheme.playerUnitNames[1], "player", starts[1] ?? { x: 2, y: 2, elevation: 0 }, "support", "rifle", ["medkit", "smoke"]),
     createUnit("player-3", currentTheme.playerUnitNames[2], "player", starts[2] ?? { x: 1, y: 3, elevation: 0 }, "sniper", "sniper", ["grenade", "smoke"]),
   ];
+}
+
+/** Create player units seeded with campaign XP, level boosts, and injury HP. */
+export function createPlayerUnitsFromCampaign(campaignUnits: CampaignUnit[], starts: GridPosition[]): Unit[] {
+  const defaults = createPlayerUnits(starts);
+  return defaults.map((base, i) => {
+    const cu = campaignUnits[i];
+    if (cu === undefined) {
+      return base;
+    }
+    const boosts = getLevelBoosts(cu.level);
+    const newMaxHp = base.maxHp + boosts.maxHpBonus;
+    const newMaxAp = base.maxActionPoints + boosts.maxApBonus;
+    const startHp = cu.isInjured
+      ? Math.max(1, Math.round(newMaxHp * cu.hpFraction))
+      : newMaxHp;
+    return {
+      ...base,
+      name: cu.name,
+      maxHp: newMaxHp,
+      hp: startHp,
+      maxActionPoints: newMaxAp,
+      actionPoints: newMaxAp,
+      weapon: {
+        ...base.weapon,
+        aimBonus: base.weapon.aimBonus + boosts.aimBonus,
+      },
+    };
+  });
 }
 
 export function createEnemyUnits(starts: GridPosition[]): Unit[] {
