@@ -19,7 +19,7 @@ const CLASS_ICON: Record<string, string> = {
 
 export class CampaignScreen {
   private readonly root: HTMLDivElement;
-  private selectedMapId: string = mapLayouts[0]?.id ?? "";
+  private selectedMapId: string | null;
   private onLaunch: LaunchMissionCallback;
   private onNewCampaign: () => void;
 
@@ -27,10 +27,11 @@ export class CampaignScreen {
     campaign: Campaign,
     onLaunch: LaunchMissionCallback,
     onNewCampaign: () => void,
-    debriefHtml?: string
+    debriefElement?: HTMLElement
   ) {
     this.onLaunch = onLaunch;
     this.onNewCampaign = onNewCampaign;
+    this.selectedMapId = mapLayouts[0]?.id ?? null;
 
     this.root = document.createElement("div");
     this.root.className = "campaign-screen";
@@ -54,11 +55,8 @@ export class CampaignScreen {
     this.root.appendChild(header);
 
     // Debrief (if coming from a completed mission)
-    if (debriefHtml !== undefined) {
-      const debrief = document.createElement("div");
-      debrief.className = "campaign-screen__debrief";
-      debrief.innerHTML = debriefHtml;
-      this.root.appendChild(debrief);
+    if (debriefElement !== undefined) {
+      this.root.appendChild(debriefElement);
     }
 
     // Two-column layout
@@ -219,6 +217,7 @@ export class CampaignScreen {
     const isSelected = layout.id === this.selectedMapId;
 
     card.className = "campaign-screen__mission-card";
+    card.setAttribute("aria-label", `Select mission: ${layout.name}`);
     if (isSelected) {
       card.classList.add("campaign-screen__mission-card--selected");
     }
@@ -252,12 +251,10 @@ export class CampaignScreen {
     card.addEventListener("click", () => {
       this.selectedMapId = layout.id;
       // Refresh selection styling without full re-render
-      const allCards = this.root.querySelectorAll(".campaign-screen__mission-card");
+      const allCards = this.root.querySelectorAll<HTMLButtonElement>(".campaign-screen__mission-card");
       allCards.forEach((c) => {
         c.classList.remove("campaign-screen__mission-card--selected");
-        if (c instanceof HTMLButtonElement) {
-          c.setAttribute("aria-pressed", "false");
-        }
+        c.setAttribute("aria-pressed", "false");
       });
       card.classList.add("campaign-screen__mission-card--selected");
       card.setAttribute("aria-pressed", "true");
@@ -271,30 +268,37 @@ export class CampaignScreen {
   }
 }
 
-/** Build a debrief HTML string from battle results to pass into the next CampaignScreen. */
-export function buildDebriefHtml(
+/** Build a debrief element from battle results to pass into the next CampaignScreen. */
+export function buildDebriefElement(
   victory: boolean,
   mapName: string,
   creditsEarned: number,
   unitLines: string[]
-): string {
-  const resultClass = victory ? "campaign-screen__debrief--victory" : "campaign-screen__debrief--defeat";
-  const resultText = victory ? "MISSION SUCCESS" : "MISSION FAILED";
-  const linesHtml = unitLines.map((l) => `<div class="campaign-screen__debrief-line">${escapeHtml(l)}</div>`).join("");
-  return `
-    <div class="${resultClass}">
-      <div class="campaign-screen__debrief-title">${resultText} — ${escapeHtml(mapName)}</div>
-      <div class="campaign-screen__debrief-credits">Credits earned: +${creditsEarned}</div>
-      ${linesHtml}
-    </div>
-  `;
-}
+): HTMLDivElement {
+  const container = document.createElement("div");
+  container.className = "campaign-screen__debrief";
 
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
+  const body = document.createElement("div");
+  body.className = victory ? "campaign-screen__debrief--victory" : "campaign-screen__debrief--defeat";
+
+  const resultText = victory ? "MISSION SUCCESS" : "MISSION FAILED";
+  const title = document.createElement("div");
+  title.className = "campaign-screen__debrief-title";
+  title.textContent = `${resultText} — ${mapName}`;
+
+  const credits = document.createElement("div");
+  credits.className = "campaign-screen__debrief-credits";
+  credits.textContent = `Credits earned: +${creditsEarned}`;
+
+  body.append(title, credits);
+
+  for (const line of unitLines) {
+    const lineEl = document.createElement("div");
+    lineEl.className = "campaign-screen__debrief-line";
+    lineEl.textContent = line;
+    body.appendChild(lineEl);
+  }
+
+  container.appendChild(body);
+  return container;
 }

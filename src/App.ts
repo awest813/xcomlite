@@ -22,7 +22,7 @@ import { TurnController } from "./game/TurnController";
 import type { Campaign } from "./game/types";
 import type { TacticalScene } from "./render/TacticalScene";
 import { Hud } from "./ui/Hud";
-import { buildDebriefHtml, CampaignScreen, pluralize } from "./ui/CampaignScreen";
+import { buildDebriefElement, CampaignScreen, pluralize } from "./ui/CampaignScreen";
 import "./style.css";
 
 /** Milliseconds to display the in-battle result banner before returning to the campaign screen. */
@@ -78,14 +78,14 @@ class App {
 
   // ——— Campaign HQ screen ———
 
-  private showCampaignScreen(debriefHtml?: string): void {
+  private showCampaignScreen(debriefElement?: HTMLElement): void {
     this.hideBattleUI();
     this.campaignScreen?.dispose();
     this.campaignScreen = new CampaignScreen(
       this.campaign,
       (layout) => this.launchMission(layout),
       () => this.startNewCampaign(),
-      debriefHtml,
+      debriefElement,
     );
   }
 
@@ -219,7 +219,7 @@ class App {
     this.campaign = applyBattleOutcome(this.campaign, outcome);
     saveCampaign(this.campaign);
 
-    const debriefHtml = buildDebriefHtml(
+    const debriefElement = buildDebriefElement(
       victory,
       this.currentLayout.name,
       creditsEarned,
@@ -233,10 +233,9 @@ class App {
         this.missionEndHandled = false;
         return;
       }
-      this.showCampaignScreen(debriefHtml);
+      this.showCampaignScreen(debriefElement);
     }, DEBRIEF_DELAY_MS);
   }
 }
 
 new App();
-
