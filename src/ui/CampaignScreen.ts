@@ -19,7 +19,7 @@ const CLASS_ICON: Record<string, string> = {
 
 export class CampaignScreen {
   private readonly root: HTMLDivElement;
-  private selectedMapId: string = mapLayouts[0].id;
+  private selectedMapId: string | null;
   private onLaunch: LaunchMissionCallback;
   private onNewCampaign: () => void;
 
@@ -27,10 +27,11 @@ export class CampaignScreen {
     campaign: Campaign,
     onLaunch: LaunchMissionCallback,
     onNewCampaign: () => void,
-    debriefHtml?: string
+    debriefElement?: HTMLElement
   ) {
     this.onLaunch = onLaunch;
     this.onNewCampaign = onNewCampaign;
+    this.selectedMapId = mapLayouts[0]?.id ?? null;
 
     this.root = document.createElement("div");
     this.root.className = "campaign-screen";
@@ -38,21 +39,24 @@ export class CampaignScreen {
     // Header
     const header = document.createElement("div");
     header.className = "campaign-screen__header";
-    header.innerHTML = `
-      <div class="campaign-screen__title">VOID SOVEREIGNS — COMMAND</div>
-      <div class="campaign-screen__meta">
-        <span class="campaign-screen__credits">⬡ ${campaign.credits} CREDITS</span>
-        <span class="campaign-screen__missions">MISSIONS COMPLETED: ${campaign.missionsCompleted}</span>
-      </div>
-    `;
+    const title = document.createElement("div");
+    title.className = "campaign-screen__title";
+    title.textContent = "VOID SOVEREIGNS — COMMAND";
+    const meta = document.createElement("div");
+    meta.className = "campaign-screen__meta";
+    const credits = document.createElement("span");
+    credits.className = "campaign-screen__credits";
+    credits.textContent = `⬡ ${campaign.credits} CREDITS`;
+    const missions = document.createElement("span");
+    missions.className = "campaign-screen__missions";
+    missions.textContent = `MISSIONS COMPLETED: ${campaign.missionsCompleted}`;
+    meta.append(credits, missions);
+    header.append(title, meta);
     this.root.appendChild(header);
 
     // Debrief (if coming from a completed mission)
-    if (debriefHtml !== undefined) {
-      const debrief = document.createElement("div");
-      debrief.className = "campaign-screen__debrief";
-      debrief.innerHTML = debriefHtml;
-      this.root.appendChild(debrief);
+    if (debriefElement !== undefined) {
+      this.root.appendChild(debriefElement);
     }
 
     // Two-column layout
@@ -76,7 +80,8 @@ export class CampaignScreen {
     const launchBtn = document.createElement("button");
     launchBtn.id = "campaign-launch-btn";
     launchBtn.className = "campaign-screen__btn campaign-screen__btn--primary";
-    launchBtn.textContent = "Deploy ▶";
+    launchBtn.textContent = mapLayouts.length === 0 ? "No Missions Available" : "Deploy ▶";
+    launchBtn.disabled = mapLayouts.length === 0;
     launchBtn.addEventListener("click", () => {
       const layout = mapLayouts.find((m) => m.id === this.selectedMapId);
       if (layout !== undefined) {
@@ -117,29 +122,65 @@ export class CampaignScreen {
     const xpPercent = needed > 0 ? Math.round((current / needed) * 100) : 100;
     const xpLabel = level >= 5 ? "MAX" : `${current} / ${needed} XP`;
 
-    const injuryBadge = cu.isInjured
-      ? `<span class="campaign-screen__badge campaign-screen__badge--injured">INJURED (${cu.injuryMissionsLeft} ${pluralize(cu.injuryMissionsLeft, "mission")})</span>`
-      : "";
+    const header = document.createElement("div");
+    header.className = "campaign-screen__unit-header";
 
-    card.innerHTML = `
-      <div class="campaign-screen__unit-header">
-        <span class="campaign-screen__unit-icon">${CLASS_ICON[cu.unitClass] ?? "·"}</span>
-        <span class="campaign-screen__unit-name">${cu.name}</span>
-        <span class="campaign-screen__unit-class">${cu.unitClass.toUpperCase()}</span>
-        <span class="campaign-screen__level-badge">LVL ${level}</span>
-        ${injuryBadge}
-      </div>
-      <div class="campaign-screen__unit-stats">
-        <span>Kills: <b>${cu.totalKills}</b></span>
-        <span>Missions: <b>${cu.missionsCompleted}</b></span>
-      </div>
-      <div class="campaign-screen__xp-row">
-        <div class="campaign-screen__xp-bar-track">
-          <div class="campaign-screen__xp-bar-fill" style="width:${xpPercent}%"></div>
-        </div>
-        <span class="campaign-screen__xp-label">${xpLabel}</span>
-      </div>
-    `;
+    const icon = document.createElement("span");
+    icon.className = "campaign-screen__unit-icon";
+    icon.textContent = CLASS_ICON[cu.unitClass] ?? "·";
+
+    const name = document.createElement("span");
+    name.className = "campaign-screen__unit-name";
+    name.textContent = cu.name;
+
+    const unitClass = document.createElement("span");
+    unitClass.className = "campaign-screen__unit-class";
+    unitClass.textContent = cu.unitClass.toUpperCase();
+
+    const levelBadge = document.createElement("span");
+    levelBadge.className = "campaign-screen__level-badge";
+    levelBadge.textContent = `LVL ${level}`;
+
+    header.append(icon, name, unitClass, levelBadge);
+
+    if (cu.isInjured) {
+      const injuryBadge = document.createElement("span");
+      injuryBadge.className = "campaign-screen__badge campaign-screen__badge--injured";
+      injuryBadge.textContent = `INJURED (${cu.injuryMissionsLeft} ${pluralize(cu.injuryMissionsLeft, "mission")})`;
+      header.appendChild(injuryBadge);
+    }
+
+    const stats = document.createElement("div");
+    stats.className = "campaign-screen__unit-stats";
+
+    const kills = document.createElement("span");
+    kills.append("Kills: ");
+    const killsValue = document.createElement("b");
+    killsValue.textContent = String(cu.totalKills);
+    kills.appendChild(killsValue);
+    const missions = document.createElement("span");
+    missions.append("Missions: ");
+    const missionsValue = document.createElement("b");
+    missionsValue.textContent = String(cu.missionsCompleted);
+    missions.appendChild(missionsValue);
+    stats.append(kills, missions);
+
+    const xpRow = document.createElement("div");
+    xpRow.className = "campaign-screen__xp-row";
+
+    const xpTrack = document.createElement("div");
+    xpTrack.className = "campaign-screen__xp-bar-track";
+    const xpFill = document.createElement("div");
+    xpFill.className = "campaign-screen__xp-bar-fill";
+    xpFill.style.width = `${xpPercent}%`;
+    xpTrack.appendChild(xpFill);
+
+    const xpText = document.createElement("span");
+    xpText.className = "campaign-screen__xp-label";
+    xpText.textContent = xpLabel;
+
+    xpRow.append(xpTrack, xpText);
+    card.append(header, stats, xpRow);
 
     return card;
   }
@@ -153,6 +194,14 @@ export class CampaignScreen {
     title.textContent = "AVAILABLE MISSIONS";
     panel.appendChild(title);
 
+    if (mapLayouts.length === 0) {
+      const empty = document.createElement("div");
+      empty.className = "campaign-screen__mission-objective";
+      empty.textContent = "No mission layouts are available.";
+      panel.appendChild(empty);
+      return panel;
+    }
+
     for (const layout of mapLayouts) {
       const card = this.buildMissionCard(layout, campaign);
       panel.appendChild(card);
@@ -161,12 +210,14 @@ export class CampaignScreen {
     return panel;
   }
 
-  private buildMissionCard(layout: MapLayout, campaign: Campaign): HTMLDivElement {
-    const card = document.createElement("div");
+  private buildMissionCard(layout: MapLayout, campaign: Campaign): HTMLButtonElement {
+    const card = document.createElement("button");
+    card.type = "button";
     const isCompleted = campaign.completedMapIds.includes(layout.id);
     const isSelected = layout.id === this.selectedMapId;
 
     card.className = "campaign-screen__mission-card";
+    card.setAttribute("aria-label", `Select mission: ${layout.name}`);
     if (isSelected) {
       card.classList.add("campaign-screen__mission-card--selected");
     }
@@ -174,24 +225,39 @@ export class CampaignScreen {
       card.classList.add("campaign-screen__mission-card--completed");
     }
 
-    const typeLabel = layout.missionType === "extract" ? "EXTRACT" : "ELIMINATE";
-    const completedBadge = isCompleted ? `<span class="campaign-screen__badge campaign-screen__badge--done">✓ COMPLETE</span>` : "";
+    card.setAttribute("aria-pressed", String(isSelected));
 
-    card.innerHTML = `
-      <div class="campaign-screen__mission-header">
-        <span class="campaign-screen__mission-name">${layout.name}</span>
-        <span class="campaign-screen__mission-type campaign-screen__mission-type--${layout.missionType}">${typeLabel}</span>
-        ${completedBadge}
-      </div>
-      <div class="campaign-screen__mission-objective">${layout.objective}</div>
-    `;
+    const typeLabel = layout.missionType === "extract" ? "EXTRACT" : "ELIMINATE";
+    const header = document.createElement("div");
+    header.className = "campaign-screen__mission-header";
+    const name = document.createElement("span");
+    name.className = "campaign-screen__mission-name";
+    name.textContent = layout.name;
+    const type = document.createElement("span");
+    type.className = `campaign-screen__mission-type campaign-screen__mission-type--${layout.missionType}`;
+    type.textContent = typeLabel;
+    header.append(name, type);
+    if (isCompleted) {
+      const done = document.createElement("span");
+      done.className = "campaign-screen__badge campaign-screen__badge--done";
+      done.textContent = "✓ COMPLETE";
+      header.appendChild(done);
+    }
+    const objective = document.createElement("div");
+    objective.className = "campaign-screen__mission-objective";
+    objective.textContent = layout.objective;
+    card.append(header, objective);
 
     card.addEventListener("click", () => {
       this.selectedMapId = layout.id;
       // Refresh selection styling without full re-render
-      const allCards = this.root.querySelectorAll(".campaign-screen__mission-card");
-      allCards.forEach((c) => c.classList.remove("campaign-screen__mission-card--selected"));
+      const allCards = this.root.querySelectorAll<HTMLButtonElement>(".campaign-screen__mission-card");
+      allCards.forEach((c) => {
+        c.classList.remove("campaign-screen__mission-card--selected");
+        c.setAttribute("aria-pressed", "false");
+      });
       card.classList.add("campaign-screen__mission-card--selected");
+      card.setAttribute("aria-pressed", "true");
     });
 
     return card;
@@ -202,21 +268,37 @@ export class CampaignScreen {
   }
 }
 
-/** Build a debrief HTML string from battle results to pass into the next CampaignScreen. */
-export function buildDebriefHtml(
+/** Build a debrief element from battle results to pass into the next CampaignScreen. */
+export function buildDebriefElement(
   victory: boolean,
   mapName: string,
   creditsEarned: number,
   unitLines: string[]
-): string {
-  const resultClass = victory ? "campaign-screen__debrief--victory" : "campaign-screen__debrief--defeat";
+): HTMLDivElement {
+  const container = document.createElement("div");
+  container.className = "campaign-screen__debrief";
+
+  const body = document.createElement("div");
+  body.className = victory ? "campaign-screen__debrief--victory" : "campaign-screen__debrief--defeat";
+
   const resultText = victory ? "MISSION SUCCESS" : "MISSION FAILED";
-  const linesHtml = unitLines.map((l) => `<div class="campaign-screen__debrief-line">${l}</div>`).join("");
-  return `
-    <div class="${resultClass}">
-      <div class="campaign-screen__debrief-title">${resultText} — ${mapName}</div>
-      <div class="campaign-screen__debrief-credits">Credits earned: +${creditsEarned}</div>
-      ${linesHtml}
-    </div>
-  `;
+  const title = document.createElement("div");
+  title.className = "campaign-screen__debrief-title";
+  title.textContent = `${resultText} — ${mapName}`;
+
+  const credits = document.createElement("div");
+  credits.className = "campaign-screen__debrief-credits";
+  credits.textContent = `Credits earned: +${creditsEarned}`;
+
+  body.append(title, credits);
+
+  for (const line of unitLines) {
+    const lineEl = document.createElement("div");
+    lineEl.className = "campaign-screen__debrief-line";
+    lineEl.textContent = line;
+    body.appendChild(lineEl);
+  }
+
+  container.appendChild(body);
+  return container;
 }
