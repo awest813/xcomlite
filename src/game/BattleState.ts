@@ -424,10 +424,9 @@ export class BattleState {
     return result;
   }
 
-  useMedkit(targetUnitId?: string): boolean {
+  useMedkit(targetUnitId: string): boolean {
     const unit = this.selectedUnit;
-    const resolvedTargetId = targetUnitId ?? this.selectedAbilityTargetUnitId ?? undefined;
-    const target = resolvedTargetId === undefined ? undefined : this.units.find((u) => u.id === resolvedTargetId);
+    const target = this.units.find((u) => u.id === targetUnitId);
 
     if (unit === undefined || target === undefined || this.selectedAbility === undefined) {
       return false;

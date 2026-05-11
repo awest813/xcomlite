@@ -345,7 +345,7 @@ export class Hud {
         : this.battleState.phase === "aiming"
           ? "Press Fire or switch targets. Reload (L) if the mag is dry. Esc cancels aim."
         : this.battleState.phase === "ability_select"
-          ? "Click an ally to set medkit target, then Use Medkit. Esc cancels."
+          ? "Click an ally to set medkit target. Esc cancels."
           : "Hover tiles for route preview. Click a highlighted tile to move, or a visible enemy to aim.";
     this.ordersLabel.textContent = orders;
   }
@@ -446,7 +446,9 @@ export class Hud {
         healButton.disabled =
           target === undefined || target.team !== "player" || target.hp >= target.maxHp;
         healButton.addEventListener("click", () => {
-          this.battleState.useMedkit();
+          if (target !== undefined) {
+            this.battleState.useMedkit(target.id);
+          }
         });
         this.abilityPanel.appendChild(healButton);
       }
