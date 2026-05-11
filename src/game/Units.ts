@@ -55,7 +55,7 @@ function createAbility(type: Ability["type"], uses: number): Ability {
     grenade: { type: "grenade", name: "Grenade", description: "Area damage (3 radius)", apCost: 1 },
     medkit: { type: "medkit", name: "Medkit", description: "Heal 3 HP", apCost: 1 },
     flashbang: { type: "flashbang", name: "Flashbang", description: "Stun enemies (2 radius)", apCost: 1 },
-    smoke: { type: "smoke", name: "Smoke", description: "Create cover (2 radius)", apCost: 1 },
+    smoke: { type: "smoke", name: "Smoke", description: "Blanket an area with smoke, reducing hit chance", apCost: 1 },
     overwatch: { type: "overwatch", name: "Overwatch", description: "Fire at moving enemies", apCost: 1 },
     suppression: { type: "suppression", name: "Suppression", description: "Reduce enemy accuracy", apCost: 1 },
   };

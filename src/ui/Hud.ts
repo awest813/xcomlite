@@ -544,7 +544,8 @@ export class Hud {
     const pathCost = this.battleState.getPathCostForSelectedUnit(tile);
     const coverLabel = tile.cover === 0 ? "None" : tile.cover === 1 ? "Half" : "Full";
     const pathCostLabel = pathCost === undefined ? "—" : String(pathCost);
-    this.tileIntel.textContent = `${tile.x}, ${tile.y} · ${capitalize(tile.terrain)} · Cover ${coverLabel} · Move cost ${tile.moveCost} · Path MP ${pathCostLabel}`;
+    const smokeLabel = tile.smokeTurns > 0 ? ` · Smoke ${tile.smokeTurns}` : "";
+    this.tileIntel.textContent = `${tile.x}, ${tile.y} · ${capitalize(tile.terrain)} · Cover ${coverLabel}${smokeLabel} · Move cost ${tile.moveCost} · Path MP ${pathCostLabel}`;
   }
 
   private renderSightIntel(): void {
@@ -583,11 +584,13 @@ export class Hud {
 
     const shooter = this.battleState.selectedUnit;
     if (shooter !== undefined && shooter.weapon.ammo <= 0 && this.battleState.phase === "aiming") {
-      this.aimIntel.textContent = `${preview.targetName} · MAG EMPTY — Reload (L), ${preview.hitChance}% preview · ${getCoverPreviewLabel(preview.cover)} · ${capitalize(preview.rangeBand)} · ${preview.damage} dmg`;
+      const smokeLabel = preview.smokeObscured ? " · obscured by smoke" : "";
+      this.aimIntel.textContent = `${preview.targetName} · MAG EMPTY — Reload (L), ${preview.hitChance}% preview · ${getCoverPreviewLabel(preview.cover)}${smokeLabel} · ${capitalize(preview.rangeBand)} · ${preview.damage} dmg`;
       return;
     }
 
-    this.aimIntel.textContent = `${preview.targetName} · ${preview.hitChance}% to hit · ${getCoverPreviewLabel(preview.cover)} · ${capitalize(preview.rangeBand)} · ${preview.damage} dmg · mag ${shooter?.weapon.ammo ?? "—"}/${shooter?.weapon.clipSize ?? "—"}`;
+    const smokeLabel = preview.smokeObscured ? " · obscured by smoke" : "";
+    this.aimIntel.textContent = `${preview.targetName} · ${preview.hitChance}% to hit · ${getCoverPreviewLabel(preview.cover)}${smokeLabel} · ${capitalize(preview.rangeBand)} · ${preview.damage} dmg · mag ${shooter?.weapon.ammo ?? "—"}/${shooter?.weapon.clipSize ?? "—"}`;
   }
 
   private renderShotIntel(): void {

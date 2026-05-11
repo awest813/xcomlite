@@ -23,6 +23,7 @@ export function buildGrid(layout: MapLayout): Tile[] {
         blocksSight: false,
         occupiedBy: null,
         destructible: false,
+        smokeTurns: 0,
         fogState: "hidden" as FogState,
       });
     }

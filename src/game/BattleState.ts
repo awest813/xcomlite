@@ -30,6 +30,7 @@ export interface TargetPreview {
   coverDirection: CoverDirection;
   cover: number;
   flanked: boolean;
+  smokeObscured: boolean;
 }
 
 export type RangeBand = "close" | "normal" | "long";
@@ -80,9 +81,19 @@ const MEDKIT_HEAL = 3;
 const FLASHBANG_RADIUS = 2;
 const FLASHBANG_DURATION = 1;
 const SMOKE_RADIUS = 2;
+const SMOKE_DURATION = 2;
+const SMOKE_HIT_PENALTY = 25;
 const PANIC_DAMAGE_WILL = 10;
 const WILL_RECOVERY_PER_TURN = 5;
 const MAX_ACTIONS_PER_ENEMY_TURN = 20;
+const FLANKED_TARGET_SCORE_BONUS = 24;
+const SMOKE_SHOT_SCORE_PENALTY = 8;
+const COVER_POSITION_SCORE_MULTIPLIER = 12;
+const SMOKE_POSITION_SCORE_BONUS = 8;
+const VISIBLE_TARGET_POSITION_SCORE = 140;
+const EXTRA_VISIBLE_TARGET_SCORE = 10;
+const APPROACH_POSITION_SCORE = 40;
+const APPROACH_DISTANCE_SCORE_MULTIPLIER = 6;
 
 export class BattleState {
   readonly grid: Tile[];
@@ -556,13 +567,9 @@ export class BattleState {
     this.syncInventoryFromAbility(unit, ability.type);
 
     const tilesInRange = this.getTilesInRadius({ x: target.x, y: target.y, elevation: target.elevation }, SMOKE_RADIUS);
-    for (const tile of tilesInRange) {
-      if (tile.cover === 0) {
-        tile.cover = 2;
-        tile.coverSides = { north: 2, east: 2, south: 2, west: 2 };
-        tile.destructible = true;
-      }
-    }
+    tilesInRange.forEach((tile) => {
+      tile.smokeTurns = Math.max(tile.smokeTurns, SMOKE_DURATION);
+    });
 
     this.lastExplosionResult = { position: { x: target.x, y: target.y, elevation: target.elevation }, radius: SMOKE_RADIUS, damage: 0, unitsHit: [] };
     this.explosionEvents.push({ position: { x: target.x, y: target.y, elevation: target.elevation }, radius: SMOKE_RADIUS, damage: 0 });
@@ -570,6 +577,7 @@ export class BattleState {
     this.selectedAbility = null;
     this.selectedAbilityTargetUnitId = null;
     this.phase = unit.actionPoints > 0 ? "moving" : "selecting";
+    this.pushFeedback("Smoke deployed — shots through the cloud lose accuracy.");
     this.notify();
     return this.lastExplosionResult;
   }
@@ -834,7 +842,15 @@ export class BattleState {
 
     const range = getManhattanDistance(fromPosition, target.position);
     const rangeBand = getRangeBand(range);
-    const hitChance = calculateHitChance(cover, flanked, rangeBand, shooter.weapon.aimBonus, shooter.isSuppressed);
+    const smokeObscured = this.isSightlineObscured(sightline);
+    const hitChance = calculateHitChance(
+      cover,
+      flanked,
+      rangeBand,
+      shooter.weapon.aimBonus,
+      shooter.isSuppressed,
+      smokeObscured ? SMOKE_HIT_PENALTY : 0
+    );
 
     return {
       targetUnitId: target.id,
@@ -842,6 +858,7 @@ export class BattleState {
       coverDirection,
       cover,
       flanked,
+      smokeObscured,
       shooterUnitId: shooter.id,
       targetName: target.name,
       range,
@@ -877,6 +894,7 @@ export class BattleState {
     this.resetActionPoints(this.currentTeam);
     this.resetMovementPoints(this.currentTeam);
     this.clearOverwatch(this.currentTeam);
+    this.decaySmokeClouds();
     // Do NOT clear enemy suppression here — it should persist through the enemy turn.
     this.checkMissionResult();
     this.notify();
@@ -957,6 +975,7 @@ export class BattleState {
   restartMission(): void {
     this.grid.forEach((tile) => {
       tile.occupiedBy = null;
+      tile.smokeTurns = 0;
     });
 
     this.units.length = 0;
@@ -1095,6 +1114,7 @@ export class BattleState {
           coverDirection,
           cover,
           flanked: visible && cover === 0,
+          smokeObscured: visible && this.isSightlineObscured(sightlinesByTarget.get(target.id)),
         };
       });
   }
@@ -1118,7 +1138,14 @@ export class BattleState {
       targetName: target.name,
       range,
       rangeBand,
-      hitChance: calculateHitChance(targetPreview.cover, targetPreview.flanked, rangeBand, shooter.weapon.aimBonus, shooter.isSuppressed),
+      hitChance: calculateHitChance(
+        targetPreview.cover,
+        targetPreview.flanked,
+        rangeBand,
+        shooter.weapon.aimBonus,
+        shooter.isSuppressed,
+        targetPreview.smokeObscured ? SMOKE_HIT_PENALTY : 0
+      ),
       damage: shooter.weapon.damage,
     };
   }
@@ -1188,6 +1215,7 @@ export class BattleState {
     this.resetActionPoints("player");
     this.resetMovementPoints("player");
     this.clearOverwatch("player");
+    this.decaySmokeClouds();
     this.phase = "selecting";
     this.selectedUnitId = null;
     this.selectedTargetUnitId = null;
@@ -1319,14 +1347,18 @@ export class BattleState {
   }
 
   private getVisiblePlayerTargets(enemy: Unit, playerUnits: Unit[]): TargetPreview[] {
+    return this.getVisiblePlayerTargetsFromPosition(enemy.position, playerUnits);
+  }
+
+  private getVisiblePlayerTargetsFromPosition(fromPosition: GridPosition, playerUnits: Unit[]): TargetPreview[] {
     return playerUnits
       .map((target) => {
-        const sightline = calculateSightline(this.grid, enemy.position, target);
+        const sightline = calculateSightline(this.grid, fromPosition, target);
         if (!sightline.visible) {
           return null;
         }
 
-        const coverDirection = getCoverDirectionTowardAttacker(enemy.position, target.position);
+        const coverDirection = getCoverDirectionTowardAttacker(fromPosition, target.position);
         const targetTile = getTile(this.grid, target.position);
         const cover = targetTile?.coverSides[coverDirection] ?? 0;
 
@@ -1336,6 +1368,7 @@ export class BattleState {
           coverDirection,
           cover,
           flanked: cover === 0,
+          smokeObscured: this.isSightlineObscured(sightline),
         };
       })
       .filter((t): t is TargetPreview => t !== null);
@@ -1363,7 +1396,14 @@ export class BattleState {
 
     const range = getManhattanDistance(enemy.position, targetUnit.position);
     const rangeBand = getRangeBand(range);
-    const hitChance = calculateHitChance(target.cover, target.flanked, rangeBand, enemy.weapon.aimBonus, enemy.isSuppressed);
+    const hitChance = calculateHitChance(
+      target.cover,
+      target.flanked,
+      rangeBand,
+      enemy.weapon.aimBonus,
+      enemy.isSuppressed,
+      target.smokeObscured ? SMOKE_HIT_PENALTY : 0
+    );
 
     const shooterPos = { ...enemy.position };
     const targetPos = { ...targetUnit.position };
@@ -1413,11 +1453,7 @@ export class BattleState {
   }
 
   private enemyMoveToBetterPosition(enemy: Unit, playerUnits: Unit[], visibleTargets: TargetPreview[]): boolean {
-    const nearestPlayer = [...playerUnits].sort((a, b) => {
-      return getManhattanDistance(enemy.position, a.position) - getManhattanDistance(enemy.position, b.position);
-    })[0];
-
-    if (nearestPlayer === undefined) {
+    if (playerUnits.length === 0) {
       return false;
     }
 
@@ -1425,24 +1461,17 @@ export class BattleState {
       return false;
     }
 
-    const nextTile = getNeighbors(this.grid, enemy.position)
-      .filter((tile) => this.canMoveUnitTo(enemy, tile))
-      .sort((a, b) => {
-        const distA = getManhattanDistance(a, nearestPlayer.position);
-        const distB = getManhattanDistance(b, nearestPlayer.position);
-        if (distA !== distB) {
-          return distA - distB;
-        }
-        const tileA = getTile(this.grid, a);
-        const tileB = getTile(this.grid, b);
-        return (tileB?.cover ?? 0) - (tileA?.cover ?? 0);
-      })[0];
+    const movement = this.getMovementForUnit(enemy);
+    const currentScore = this.scoreEnemyPosition(enemy, enemy.position, playerUnits);
+    const bestTile = movement.reachableTiles
+      .map((tile) => ({ tile, score: this.scoreEnemyPosition(enemy, tile, playerUnits) }))
+      .sort((a, b) => b.score - a.score)[0];
 
-    if (nextTile === undefined) {
+    if (bestTile === undefined || bestTile.score <= currentScore) {
       return false;
     }
 
-    this.moveUnit(enemy, { x: nextTile.x, y: nextTile.y, elevation: nextTile.elevation }, true);
+    this.moveUnit(enemy, { x: bestTile.tile.x, y: bestTile.tile.y, elevation: bestTile.tile.elevation }, true);
     return true;
   }
 
@@ -1603,6 +1632,62 @@ export class BattleState {
     return Math.floor(Math.random() * 100) + 1;
   }
 
+  private decaySmokeClouds(): void {
+    this.grid.forEach((tile) => {
+      if (tile.smokeTurns > 0) {
+        tile.smokeTurns -= 1;
+      }
+    });
+  }
+
+  private isSightlineObscured(sightline: Sightline | undefined): boolean {
+    if (sightline === undefined) {
+      return false;
+    }
+
+    return sightline.path.some((position, index) => index > 0 && (getTile(this.grid, position)?.smokeTurns ?? 0) > 0);
+  }
+
+  private scoreEnemyPosition(enemy: Unit, position: GridPosition, playerUnits: Unit[]): number {
+    const tile = getTile(this.grid, position);
+    const visibleTargets = this.getVisiblePlayerTargetsFromPosition(position, playerUnits);
+    const bestShotScore = visibleTargets.reduce((best, target) => {
+      const targetUnit = playerUnits.find((unit) => unit.id === target.targetUnitId);
+      if (targetUnit === undefined) {
+        return best;
+      }
+
+      const range = getManhattanDistance(position, targetUnit.position);
+      const hitChance = calculateHitChance(
+        target.cover,
+        target.flanked,
+        getRangeBand(range),
+        enemy.weapon.aimBonus,
+        enemy.isSuppressed,
+        target.smokeObscured ? SMOKE_HIT_PENALTY : 0
+      );
+      const score =
+        hitChance +
+        (target.flanked ? FLANKED_TARGET_SCORE_BONUS : 0) -
+        (target.smokeObscured ? SMOKE_SHOT_SCORE_PENALTY : 0);
+      return Math.max(best, score);
+    }, Number.NEGATIVE_INFINITY);
+    const nearestDistance = playerUnits.reduce(
+      (best, player) => Math.min(best, getManhattanDistance(position, player.position)),
+      Number.POSITIVE_INFINITY
+    );
+    const moveTax = getManhattanDistance(enemy.position, position);
+    const coverScore =
+      (tile?.cover ?? 0) * COVER_POSITION_SCORE_MULTIPLIER +
+      ((tile?.smokeTurns ?? 0) > 0 ? SMOKE_POSITION_SCORE_BONUS : 0);
+    const visibilityScore =
+      visibleTargets.length > 0
+        ? VISIBLE_TARGET_POSITION_SCORE + bestShotScore + Math.min(visibleTargets.length, 2) * EXTRA_VISIBLE_TARGET_SCORE
+        : Math.max(0, APPROACH_POSITION_SCORE - nearestDistance * APPROACH_DISTANCE_SCORE_MULTIPLIER);
+
+    return visibilityScore + coverScore - moveTax;
+  }
+
   private updateFogOfWar(): void {
     this.grid.forEach((tile) => {
       if (tile.fogState === "visible") {
@@ -1681,11 +1766,18 @@ function getRangeBand(range: number): RangeBand {
   return "long";
 }
 
-function calculateHitChance(cover: number, flanked: boolean, rangeBand: RangeBand, aimBonus: number = 0, isSuppressed: boolean = false): number {
+function calculateHitChance(
+  cover: number,
+  flanked: boolean,
+  rangeBand: RangeBand,
+  aimBonus: number = 0,
+  isSuppressed: boolean = false,
+  smokePenalty: number = 0
+): number {
   const coverModifier = flanked ? 20 : cover === 1 ? -20 : cover >= 2 ? -40 : 0;
   const rangeModifier = rangeBand === "close" ? 10 : rangeBand === "long" ? -15 : 0;
   const suppressionModifier = isSuppressed ? -SUPPRESSION_ACCURACY_PENALTY : 0;
-  return clamp(65 + coverModifier + rangeModifier + aimBonus + suppressionModifier, 10, 95);
+  return clamp(65 + coverModifier + rangeModifier + aimBonus + suppressionModifier - smokePenalty, 10, 95);
 }
 
 function clamp(value: number, min: number, max: number): number {

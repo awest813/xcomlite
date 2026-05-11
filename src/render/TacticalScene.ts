@@ -68,6 +68,7 @@ export class TacticalScene {
   private readonly floorTileMaterial: StandardMaterial;
   private readonly roadTileMaterial: StandardMaterial;
   private readonly roughTileMaterial: StandardMaterial;
+  private readonly smokeTileMaterial: StandardMaterial;
   private readonly blockedTileMaterial: StandardMaterial;
   private readonly reachableMaterial: StandardMaterial;
   private readonly pathPreviewMaterial: StandardMaterial;
@@ -118,6 +119,8 @@ export class TacticalScene {
     this.floorTileMaterial = this.createMaterial("floor-tile-material", new Color3(0.25, 0.32, 0.29));
     this.roadTileMaterial = this.createMaterial("road-tile-material", new Color3(0.2, 0.22, 0.23));
     this.roughTileMaterial = this.createMaterial("rough-tile-material", new Color3(0.32, 0.34, 0.25));
+    this.smokeTileMaterial = this.createMaterial("smoke-tile-material", new Color3(0.4, 0.48, 0.58));
+    this.smokeTileMaterial.emissiveColor = new Color3(0.08, 0.11, 0.15);
     this.blockedTileMaterial = this.createMaterial("blocked-tile-material", new Color3(0.14, 0.15, 0.15));
     this.reachableMaterial = this.createMaterial("reachable-material", new Color3(0.34, 0.58, 0.48));
     this.pathPreviewMaterial = this.createMaterial("path-preview-material", new Color3(0.78, 0.69, 0.28));
@@ -1070,6 +1073,10 @@ export class TacticalScene {
   private getBaseTileMaterial(tile: Tile): StandardMaterial {
     if (!tile.walkable) {
       return this.blockedTileMaterial;
+    }
+
+    if (tile.smokeTurns > 0) {
+      return this.smokeTileMaterial;
     }
 
     if (tile.terrain === "road") {
