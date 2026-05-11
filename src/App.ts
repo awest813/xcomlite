@@ -1,5 +1,5 @@
 import { ArcRotateCamera, Engine, Scene, Vector3 } from "@babylonjs/core";
-import { tacticalThemes, mapLayouts, defaultMapLayout } from "./data/BattleMap";
+import { mapLayouts, defaultMapLayout, voidSovereignsTheme } from "./data/BattleMap";
 import { BattleState } from "./game/BattleState";
 import { installDebugHooks } from "./game/DebugHooks";
 import { setTheme } from "./game/Units";
@@ -8,7 +8,7 @@ import type { TacticalScene } from "./render/TacticalScene";
 import { Hud } from "./ui/Hud";
 import "./style.css";
 
-setTheme(tacticalThemes[0]);
+setTheme(voidSovereignsTheme);
 
 class App {
   private battleState: BattleState | null = null;
@@ -20,7 +20,6 @@ class App {
   private hud: Hud | null = null;
   private turnController: TurnController | null = null;
   private mapSwitchQueue: Promise<void> = Promise.resolve();
-  private activeLayout = defaultMapLayout;
 
   constructor() {
     this.canvas = document.createElement("canvas");
@@ -40,7 +39,6 @@ class App {
 
     this.enqueueLoadMap(defaultMapLayout);
     this.createMapSelector();
-    this.createThemeSelector();
 
     window.addEventListener("resize", () => this.engine.resize());
   }
@@ -52,7 +50,6 @@ class App {
   }
 
   private async performLoadMap(layout: typeof defaultMapLayout): Promise<void> {
-    this.activeLayout = layout;
     this.battleState?.grid.forEach((tile) => {
       tile.occupiedBy = null;
     });
@@ -105,29 +102,6 @@ class App {
     document.body.appendChild(selector);
   }
 
-  private createThemeSelector(): void {
-    const selector = document.createElement("div");
-    selector.className = "map-selector map-selector--theme";
-
-    const label = document.createElement("span");
-    label.className = "map-selector__label";
-    label.textContent = "Tactical theme";
-    selector.appendChild(label);
-
-    for (const theme of tacticalThemes) {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.textContent = theme.name;
-      button.className = "map-selector__button";
-      button.addEventListener("click", () => {
-        setTheme(theme);
-        this.enqueueLoadMap(this.activeLayout);
-      });
-      selector.appendChild(button);
-    }
-
-    document.body.appendChild(selector);
-  }
 }
 
 new App();

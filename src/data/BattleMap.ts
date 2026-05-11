@@ -35,29 +35,11 @@ export interface MapLayout {
 
 export const voidSovereignsTheme: ThemeConfig = {
   name: "Void Sovereigns",
-  playerUnitNames: ["Sovereign Operative", "Station Tech", "Salvage Runner"],
-  enemyUnitNames: ["SecurityBot", "Sovereign Remnant", "Auto-Turret"],
-  mapName: "Derelict Station - Sector 7G",
-  missionBriefing: "Sovereign remnants are active in the sector. Eliminate all hostiles and secure the area.",
+  playerUnitNames: ["Void Ranger", "Tech Specialist", "Sharpshooter"],
+  enemyUnitNames: ["Sovereignty Drone", "Void Enforcer", "Apex Sentinel"],
+  mapName: "Deep Space Operations",
+  missionBriefing: "Sovereignty forces are fortifying the sector. Eliminate all hostiles and secure the operational zone.",
 };
-
-export const xcomStrikeTheme: ThemeConfig = {
-  name: "XCOM Strike Team",
-  playerUnitNames: ["Ranger", "Specialist", "Sharpshooter"],
-  enemyUnitNames: ["ADVENT Trooper", "ADVENT Officer", "ADVENT Sniper"],
-  mapName: "Operation Neon Dagger",
-  missionBriefing: "Eliminate hostile contacts and hold tactical control of the zone.",
-};
-
-export const xenonautsResponseTheme: ThemeConfig = {
-  name: "Xenonauts Response Team",
-  playerUnitNames: ["Rifleman", "Shield Operative", "Precision Marksman"],
-  enemyUnitNames: ["Sebillian Scout", "Caesan Rifleman", "Andron Drone"],
-  mapName: "Crash Site Recovery",
-  missionBriefing: "Secure alien technology and neutralize all surviving hostiles.",
-};
-
-export const tacticalThemes: ThemeConfig[] = [voidSovereignsTheme, xcomStrikeTheme, xenonautsResponseTheme];
 
 const stationSector7G: AuthoredTile[] = [
   { x: 0, y: 0, terrain: "rough", moveCost: 2 },

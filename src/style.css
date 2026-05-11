@@ -927,10 +927,6 @@ button:focus-visible {
   backdrop-filter: blur(14px) saturate(1.12);
 }
 
-.map-selector--theme {
-  top: 86px;
-}
-
 .map-selector__label {
   margin-right: 6px;
   font-size: 11px;
@@ -1028,9 +1024,5 @@ button:focus-visible {
     right: 16px;
     left: 16px;
     justify-content: center;
-  }
-
-  .map-selector--theme {
-    top: 98px;
   }
 }
